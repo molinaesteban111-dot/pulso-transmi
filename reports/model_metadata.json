@@ -1,0 +1,27 @@
+{
+  "validation_start_exclusive_utc": "2026-09-02 04:45:00+00:00",
+  "validation_end_inclusive_utc": "2026-09-09 04:45:00+00:00",
+  "training_rows": 142728,
+  "validation_rows": 32256,
+  "origin_feature_lags_intervals": [
+    0,
+    1,
+    4,
+    96,
+    672
+  ],
+  "target_same_time_previous_day_lag_intervals": 96,
+  "features": "past demand lags/rolling means, cyclic time/day, weekend, station one-hot, horizon; no future context",
+  "candidates": {
+    "ridge": {
+      "alpha": 10.0
+    },
+    "hist_gradient_boosting": {
+      "max_iter": 120,
+      "learning_rate": 0.08,
+      "max_leaf_nodes": 31,
+      "l2_regularization": 1.0,
+      "random_state": 42
+    }
+  }
+}

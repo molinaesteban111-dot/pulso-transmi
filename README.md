@@ -33,6 +33,10 @@ python -m pip install -e '.[ml]'
 cp .env.example .env
 python examples/01_download.py
 python examples/02_naive_baseline.py
+python examples/03_baseline_backtest.py
+python -m pip install -e '.[ml]'
+python examples/04_train_models.py
+python examples/05_rolling_backtest.py --windows 3 --validation-days 7
 ```
 
 En Windows PowerShell, la activación es `.venv\Scripts\Activate.ps1`.
@@ -165,3 +169,10 @@ python -m src.ingest --incremental
 La carga inicial hace `upsert` de estaciones, contexto y observaciones. La ejecución incremental recupera el último cursor guardado en `ingestion_batches`, registra cada lote y solo avanza después de completar la operación.
 
 El workflow manual está en **Actions → Pulso TransMi ingestion**. Antes de ejecutarlo, define la variable de repositorio `SUPABASE_URL` y el secreto `SUPABASE_SERVICE_ROLE_KEY` en **Settings → Secrets and variables → Actions**. No uses la `anon` o `publishable key` para escrituras. El cron se deja desactivado hasta que el profesor confirme el horario de competencia.
+
+La comparación de persistencia y naive estacional diario está documentada en
+[reports/baselines.md](reports/baselines.md).
+
+Los candidatos entrenados y su validación están en [reports/modelos.md](reports/modelos.md).
+El backtesting de varias ventanas está documentado en [reports/backtesting-ventanas.md](reports/backtesting-ventanas.md).
+El workflow manual **Upload model artifacts to Supabase Storage** entrena los candidatos y los guarda en un bucket privado.

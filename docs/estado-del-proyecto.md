@@ -20,7 +20,7 @@ La competencia requiere 48 predicciones por ciclo (12 estaciones × horizontes +
 - Se clonó el starter kit oficial y se creó el repositorio del equipo `molinaesteban111-dot/pulso-transmi`.
 - El repositorio local usa la rama `main` y apunta al repositorio del equipo, no al upstream del curso.
 - Se conservó el SDK oficial para consultar la API, descargar datos y validar checksums.
-- El último estado conocido está sincronizado con `origin/main` en el commit `47690a7`.
+- El último commit publicado es `386ee41` (incluye workflow de artefactos y script de entrenamiento); los cambios de backtesting que se describen a continuación están preparados localmente para publicar.
 
 ### Datos y análisis exploratorio
 
@@ -30,6 +30,9 @@ La competencia requiere 48 predicciones por ciclo (12 estaciones × horizontes +
 - Se documentaron patrones horarios y semanales, diferencias por estación, distribución de demanda y correlaciones exploratorias con variables contextuales.
 - Se generó el informe `reports/eda.md`, nueve gráficas PNG en `reports/figures/` y el generador `reports/generate_eda_plots.py`.
 - Se agregó `matplotlib` como dependencia opcional `.[eda]`.
+- Se compararon dos baselines sin entrenamiento en validación temporal de los últimos 7 días: persistencia inmediata y naive estacional diario de 96 intervalos. Resultados y artefactos están en `reports/baselines.md` y archivos `reports/baseline_*`.
+- Se entrenaron Ridge y HistGradientBoosting con rezagos calculados en cada origen, variables temporales y estación, comparándolos con los baselines en la misma ventana de 7 días. HistGradientBoosting logró 85,76 % de accuracy macro agregada de los cuatro horizontes, frente a 77,89 % del naive diario y 74,47 % de persistencia. Son candidatos; aún no se promovió un champion.
+- Se amplió la evaluación a tres ventanas temporales consecutivas de siete días con entrenamiento expansivo. HistGradientBoosting conservó el primer lugar en cada ventana (85,76 %, 85,21 % y 85,44 %; promedio 85,47 %) y en cada horizonte. Queda recomendado para empaquetado como candidato, todavía no como champion productivo. Protocolo y resultados: `reports/backtesting-ventanas.md` y `reports/rolling_backtest_metrics.csv`.
 
 ### Modelo de datos
 
@@ -61,6 +64,11 @@ La competencia requiere 48 predicciones por ciclo (12 estaciones × horizontes +
 | Propósito | Archivo |
 |---|---|
 | Análisis exploratorio | `reports/eda.md` |
+| Baselines y backtest temporal | `reports/baselines.md` |
+| Script del backtest | `examples/03_baseline_backtest.py` |
+| Modelos candidatos y evaluación | `reports/modelos.md` |
+| Entrenamiento reproducible | `examples/04_train_models.py` |
+| Backtesting temporal multiventana | `reports/backtesting-ventanas.md` y `examples/05_rolling_backtest.py` |
 | Generación de gráficas | `reports/generate_eda_plots.py` |
 | Gráficas del EDA | `reports/figures/*.png` |
 | Diagrama entidad-relación | `docs/modelo-entidad-relacion.md` |
@@ -77,8 +85,8 @@ La competencia requiere 48 predicciones por ciclo (12 estaciones × horizontes +
 3. Ejecutar manualmente **Actions → Pulso TransMi ingestion → Run workflow → initial**.
 4. Verificar en Supabase que se cargaron 12 estaciones, 4.320 filas de contexto y 51.840 observaciones, y comprobar que una segunda carga inicial no produce duplicados.
 5. Revisar y probar el modo incremental. El stream competitivo y sus endpoints/cursor deben contrastarse con el contrato técnico que publique el profesor; el actual modo incremental es una primera implementación basada en paginación de observaciones de lectura.
-6. Construir y comparar al menos dos baselines mediante validación temporal, por ejemplo persistencia inmediata y rezago estacional de 96 intervalos.
-7. Definir versiones y promoción del modelo champion, y luego implementar la inferencia/submission de acuerdo con el contrato competitivo definitivo.
+6. Validar estabilidad de los candidatos con varias ventanas temporales y analizar métricas por estación.
+7. Definir versionamiento y promoción del modelo champion solo después de esa evaluación; luego implementar inferencia/submission según el contrato competitivo definitivo.
 8. Añadir evaluación de accuracy y señales de drift sobre predicciones resueltas.
 
 ## 5. Diferencia entre guía y decisiones implementadas

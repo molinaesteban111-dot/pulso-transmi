@@ -149,3 +149,16 @@ pytest -q
 
 Este repositorio es público para estudiantes. No debe contener ground truth
 futuro, semillas, configuración privada del escenario ni parámetros de drift.
+
+## Ingesta hacia Supabase
+
+El módulo `src/ingest.py` soporta carga inicial del histórico y collector incremental. Configura `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` en un entorno seguro; nunca subas la service-role key al repositorio.
+
+```bash
+python -m src.ingest --initial
+python -m src.ingest --incremental
+```
+
+La carga inicial hace `upsert` de estaciones, contexto y observaciones. La ejecución incremental recupera el último cursor guardado en `ingestion_batches`, registra cada lote y solo avanza después de completar la operación.
+
+El workflow manual está en **Actions → Pulso TransMi ingestion**. Antes de ejecutarlo, define la variable de repositorio `SUPABASE_URL` y el secreto `SUPABASE_SERVICE_ROLE_KEY` en **Settings → Secrets and variables → Actions**. No uses la `anon` o `publishable key` para escrituras. El cron se deja desactivado hasta que el profesor confirme el horario de competencia.

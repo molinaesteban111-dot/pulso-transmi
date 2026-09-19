@@ -1,6 +1,6 @@
 import pandas as pd
 
-from src.ingest import chunks, records
+from ingest import chunks, records
 
 
 def test_records_serializes_timestamps_and_nulls() -> None:

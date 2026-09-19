@@ -1,7 +1,9 @@
 # Estado y bitácora del proyecto Pulso TransMi
 
-**Corte del documento:** 18 de septiembre de 2026  
-**Repositorio del equipo:** <https://github.com/molinaesteban111-dot/pulso-transmi>  
+**Corte del documento:** 19 de septiembre de 2026
+
+**Repositorio del equipo:** <https://github.com/molinaesteban111-dot/pulso-transmi>
+
 **Repositorio de referencia/SDK:** <https://github.com/uexternadojz/pulso-transmi-sdk>  
 **Curso:** MLOps · Ciencia de Datos
 
@@ -20,7 +22,7 @@ La competencia requiere 48 predicciones por ciclo (12 estaciones × horizontes +
 - Se clonó el starter kit oficial y se creó el repositorio del equipo `molinaesteban111-dot/pulso-transmi`.
 - El repositorio local usa la rama `main` y apunta al repositorio del equipo, no al upstream del curso.
 - Se conservó el SDK oficial para consultar la API, descargar datos y validar checksums.
-- El último commit publicado es `386ee41` (incluye workflow de artefactos y script de entrenamiento); los cambios de backtesting que se describen a continuación están preparados localmente para publicar.
+- El repositorio del equipo está publicado en GitHub, rama `main`. El último commit verificado es `e061c38` (`Add forecast submission pipeline`).
 
 ### Datos y análisis exploratorio
 
@@ -34,6 +36,11 @@ La competencia requiere 48 predicciones por ciclo (12 estaciones × horizontes +
 - Se entrenaron Ridge y HistGradientBoosting con rezagos calculados en cada origen, variables temporales y estación, comparándolos con los baselines en la misma ventana de 7 días. HistGradientBoosting logró 85,76 % de accuracy macro agregada de los cuatro horizontes, frente a 77,89 % del naive diario y 74,47 % de persistencia. Son candidatos; aún no se promovió un champion.
 - Se amplió la evaluación a tres ventanas temporales consecutivas de siete días con entrenamiento expansivo. HistGradientBoosting conservó el primer lugar en cada ventana (85,76 %, 85,21 % y 85,44 %; promedio 85,47 %) y en cada horizonte. Queda recomendado para empaquetado como candidato, todavía no como champion productivo. Protocolo y resultados: `reports/backtesting-ventanas.md` y `reports/rolling_backtest_metrics.csv`.
 - Se implementó `src/pipeline.py` y el workflow manual `forecast-submission.yml`: sincroniza el stream, consulta ciclos, entrena con datos de Supabase hasta el cutoff, valida las 48 predicciones, envía con Bearer e idempotencia, registra la ejecución/submission/predicciones y permite consultar recibos/leaderboard. Sin ciclo abierto, hace no-op. No se habilitó schedule.
+- Los artefactos del backtest multiventana están versionados en GitHub: `reports/rolling_backtest_metrics.csv` (60 agregados por modelo, ventana, estación y horizonte) y `reports/rolling_backtest_predictions.csv.gz` (387.072 filas de predicciones de validación de cuatro métodos, con valores observados, origen y ventana). Son resultados históricos evaluados, no pronósticos futuros de una competencia.
+- Se revisó el OpenAPI actualmente desplegado (v0.5.0). Expone `POST /v1/submissions`, `GET /v1/submissions/{submission_id}`, `GET /v1/leaderboard` y `GET /v1/portal/leaderboard`; no expone un endpoint documentado para subir CSV de backtest ni para reportar directamente el accuracy local. `POST /v1/submissions` requiere `cycle_id`, `data_cutoff`, trazabilidad del modelo y predicciones.
+- Se configuraron en GitHub Actions los secretos `PULSO_API_KEY` y `SUPABASE_SERVICE_ROLE_KEY` (confirmado visualmente por el usuario para el primero y en la configuración compartida previamente para el segundo); `PULSO_API_URL` y `SUPABASE_URL` se usan como variables. Los valores secretos no se registran ni deben compartirse.
+- El 19 de septiembre de 2026 se ejecutó manualmente `Pulso TransMi forecast submission` en la rama `main`, commit `e061c38`. El job tuvo estado **Success**: instaló el proyecto y completó la sincronización de observaciones. El paso de predicción devolvió `{"status":"no_open_cycle"}`. Por tanto, esa ejecución no entrenó ni envió pronósticos, no creó submission y no produjo recibo ni evaluación oficial.
+- Se explicó que el API key autentica solicitudes, pero no determina por sí mismo el endpoint ni convierte las métricas del backtest en un payload válido de competencia. Queda pendiente pedir al profesor la ruta y el esquema específicos si requiere registrar métricas de backtest con la clave. Hasta recibir esa especificación, no se envían datos a una ruta inventada ni se mandan las predicciones de validación como si fueran predicciones futuras.
 
 ### Modelo de datos
 
@@ -67,10 +74,10 @@ La competencia requiere 48 predicciones por ciclo (12 estaciones × horizontes +
 | Análisis exploratorio | `reports/eda.md` |
 | Baselines y backtest temporal | `reports/baselines.md` |
 | Script del backtest | `examples/03_baseline_backtest.py` |
-| Modelos candidatos y evaluación | `reports/modelos.md` |
+| Modelos candidatos y evaluación | [`reports/modelos.md`](../reports/modelos.md) |
 | Entrenamiento reproducible | `examples/04_train_models.py` |
-| Backtesting temporal multiventana | `reports/backtesting-ventanas.md` y `examples/05_rolling_backtest.py` |
-| Pipeline de predicción/submission | `src/pipeline.py` y `.github/workflows/forecast-submission.yml` |
+| Backtesting temporal multiventana | [`reports/backtesting-ventanas.md`](../reports/backtesting-ventanas.md), `reports/rolling_backtest_metrics.csv` y `reports/rolling_backtest_predictions.csv.gz` |
+| Pipeline de predicción/submission | [`src/pipeline.py`](../src/pipeline.py) y [workflow manual](../.github/workflows/forecast-submission.yml) |
 | Generación de gráficas | `reports/generate_eda_plots.py` |
 | Gráficas del EDA | `reports/figures/*.png` |
 | Diagrama entidad-relación | `docs/modelo-entidad-relacion.md` |
@@ -82,14 +89,11 @@ La competencia requiere 48 predicciones por ciclo (12 estaciones × horizontes +
 
 ## 4. Qué falta antes de continuar
 
-1. Crear en Supabase una clave secreta de servidor o recuperar la `service_role` desde **Project Settings → API Keys**. No usar `anon` ni `sb_publishable_...` para la carga.
-2. Guardar la clave en GitHub: **Settings → Secrets and variables → Actions → New repository secret**, con el nombre exacto `SUPABASE_SERVICE_ROLE_KEY`.
-3. Ejecutar manualmente **Actions → Pulso TransMi ingestion → Run workflow → initial**.
-4. Verificar en Supabase que se cargaron 12 estaciones, 4.320 filas de contexto y 51.840 observaciones, y comprobar que una segunda carga inicial no produce duplicados.
-5. Revisar y probar el modo incremental. El stream competitivo y sus endpoints/cursor deben contrastarse con el contrato técnico que publique el profesor; el actual modo incremental es una primera implementación basada en paginación de observaciones de lectura.
-6. Validar estabilidad de los candidatos con varias ventanas temporales y analizar métricas por estación.
-7. Definir versionamiento y promoción del modelo champion solo después de esa evaluación; luego implementar inferencia/submission según el contrato competitivo definitivo.
-8. Añadir evaluación de accuracy y señales de drift sobre predicciones resueltas.
+1. Confirmar con el profesor si las métricas del backtest deben entregarse enlazando los artefactos del repositorio o cargándolas a un endpoint privado; si es lo último, solicitar ruta, esquema, autenticación y formato exactos. Los archivos ya están publicados en `reports/`.
+2. Cuando haya un ciclo abierto, ejecutar **Actions → Pulso TransMi forecast submission → Run workflow → forecast**. Confirmar en el log un `submission_id` y recibo; después seleccionar `receipt` o `leaderboard` en una nueva ejecución para recuperar evaluación y posición oficial.
+3. Verificar la carga de histórico a Supabase: 12 estaciones, 4.320 filas de contexto y 51.840 observaciones según el corte original. La documentación previa registra que la carga inicial estaba pendiente; confirmar el estado directamente en la base antes de asumir que se completó.
+4. Revisar el modo incremental contra el contrato del profesor y añadir evaluación de accuracy/drift sobre predicciones resueltas.
+5. Extender la validación temporal y analizar resultados por estación antes de promover un champion productivo.
 
 ## 5. Diferencia entre guía y decisiones implementadas
 
@@ -112,6 +116,8 @@ Supabase se recomendó para la memoria operacional en la guía metodológica, mi
 | `8c58eaa` | Gráficas del EDA y generador reproducible |
 | `26f84b6` | Módulo de ingesta, pruebas iniciales y workflow de GitHub Actions |
 | `47690a7` | Corrección del import de ingesta; CI verificado exitosamente |
+| `2b1b97d` | Baselines y resultados del backtest rolling |
+| `e061c38` | Pipeline de pronóstico/submission, cliente API, workflow manual y pruebas (13 aprobadas) |
 
 ## 8. Comandos útiles
 

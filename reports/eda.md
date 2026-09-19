@@ -35,6 +35,28 @@ El contexto no tiene faltantes. `rain_mm` tiene media 0,26 y máximo 7,72; `temp
 
 En una correlación exploratoria contemporánea y no causal, la temperatura presenta la relación lineal más alta con la demanda (**0,208**), seguida por la lluvia (**-0,010**) y la intensidad de eventos (**0,088**). Estas correlaciones son débiles frente al patrón horario, por lo que el contexto debe evaluarse mediante backtesting temporal y no asumirse como predictor útil sin evidencia. Además, no debe usarse información futura que no estuviera disponible en el momento de inferir.
 
+## Visualizaciones
+
+Las figuras se generan con `reports/generate_eda_plots.py` y se guardan en `reports/figures/`:
+
+![Distribución de la demanda](figures/01-distribucion-demanda.png)
+
+![Demanda promedio por estación](figures/02-demanda-por-estacion.png)
+
+![Variabilidad por estación](figures/03-variabilidad-por-estacion.png)
+
+![Estacionalidad horaria](figures/04-estacionalidad-horaria.png)
+
+![Estacionalidad semanal](figures/05-estacionalidad-semanal.png)
+
+![Serie temporal total](figures/06-serie-temporal-total.png)
+
+![Distribuciones de contexto](figures/07-distribuciones-contexto.png)
+
+![Correlaciones con la demanda](figures/08-correlaciones-contexto.png)
+
+![Cobertura por estación](figures/09-cobertura-por-estacion.png)
+
 ## Hipótesis para experimentar
 
 1. Los rezagos recientes y el mismo cuarto de hora del día anterior explicarán más demanda que las variables meteorológicas aisladas.
@@ -55,6 +77,8 @@ En una correlación exploratoria contemporánea y no causal, la temperatura pres
 
 ```bash
 .venv/bin/python examples/01_download.py
+.venv/bin/python -m pip install -e '.[eda]'
+.venv/bin/python reports/generate_eda_plots.py
 ```
 
 Los datos analizados se encuentran en `data/` y fueron descargados desde los endpoints oficiales documentados en el SDK.

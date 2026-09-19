@@ -33,6 +33,7 @@ La competencia requiere 48 predicciones por ciclo (12 estaciones × horizontes +
 - Se compararon dos baselines sin entrenamiento en validación temporal de los últimos 7 días: persistencia inmediata y naive estacional diario de 96 intervalos. Resultados y artefactos están en `reports/baselines.md` y archivos `reports/baseline_*`.
 - Se entrenaron Ridge y HistGradientBoosting con rezagos calculados en cada origen, variables temporales y estación, comparándolos con los baselines en la misma ventana de 7 días. HistGradientBoosting logró 85,76 % de accuracy macro agregada de los cuatro horizontes, frente a 77,89 % del naive diario y 74,47 % de persistencia. Son candidatos; aún no se promovió un champion.
 - Se amplió la evaluación a tres ventanas temporales consecutivas de siete días con entrenamiento expansivo. HistGradientBoosting conservó el primer lugar en cada ventana (85,76 %, 85,21 % y 85,44 %; promedio 85,47 %) y en cada horizonte. Queda recomendado para empaquetado como candidato, todavía no como champion productivo. Protocolo y resultados: `reports/backtesting-ventanas.md` y `reports/rolling_backtest_metrics.csv`.
+- Se implementó `src/pipeline.py` y el workflow manual `forecast-submission.yml`: sincroniza el stream, consulta ciclos, entrena con datos de Supabase hasta el cutoff, valida las 48 predicciones, envía con Bearer e idempotencia, registra la ejecución/submission/predicciones y permite consultar recibos/leaderboard. Sin ciclo abierto, hace no-op. No se habilitó schedule.
 
 ### Modelo de datos
 
@@ -69,6 +70,7 @@ La competencia requiere 48 predicciones por ciclo (12 estaciones × horizontes +
 | Modelos candidatos y evaluación | `reports/modelos.md` |
 | Entrenamiento reproducible | `examples/04_train_models.py` |
 | Backtesting temporal multiventana | `reports/backtesting-ventanas.md` y `examples/05_rolling_backtest.py` |
+| Pipeline de predicción/submission | `src/pipeline.py` y `.github/workflows/forecast-submission.yml` |
 | Generación de gráficas | `reports/generate_eda_plots.py` |
 | Gráficas del EDA | `reports/figures/*.png` |
 | Diagrama entidad-relación | `docs/modelo-entidad-relacion.md` |

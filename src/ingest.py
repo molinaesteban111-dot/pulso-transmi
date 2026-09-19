@@ -119,28 +119,49 @@ def load_static_data(db: SupabaseRest, data_dir: Path = DATA_DIR) -> dict[str, i
     return {"stations": len(stations), "context": len(context), "observations": len(observations)}
 
 
-def load_incremental_data(db: SupabaseRest, api: PulsoTransmiClient, run_id: str) -> dict[str, int | str | None]:
-    """Consume the public stream from the saved cursor supplied by the caller.
-
-    The cursor is only advanced by the caller after this function returns
-    successfully, so a failed upsert is safe to retry.
-    """
+def load_incremental_data(db: SupabaseRest, api: PulsoTransMiClient, run_id: str) -> dict[str, int | str | None]:
+    """Consume every available competition-stream page and checkpoint safely."""
     cursor = os.getenv("PULSO_CURSOR") or db.latest_cursor()
-    page = api.observations_page(cursor=cursor, limit=5000)
-    rows = page.get("data", [])
-    next_cursor = page.get("next_cursor")
-    if rows:
-        frame = pd.DataFrame(rows)
-        frame["station_id"] = frame["station_id"].astype("string")
-        frame["observed_at"] = pd.to_datetime(frame["observed_at"], utc=True)
-        for part in chunks(records(frame)):
-            db.upsert("observations", part, on_conflict="station_id,observed_at")
-        # Persist the cursor only after every observation upsert succeeds. If the
-        # batch log fails, retrying the same cursor is safe thanks to the upsert.
-        batch = db.insert_one("ingestion_batches", {"run_id": run_id, "source_cursor": cursor, "next_cursor": next_cursor, "rows_received": len(frame), "source_cutoff": frame["observed_at"].max().strftime("%Y-%m-%dT%H:%M:%SZ"), "status": "success"})
-        return {"rows": len(frame), "next_cursor": next_cursor, "batch_id": batch["ingestion_batch_id"]}
-    db.insert_one("ingestion_batches", {"run_id": run_id, "source_cursor": cursor, "next_cursor": next_cursor, "rows_received": 0, "status": "no_data"})
-    return {"rows": 0, "next_cursor": next_cursor, "batch_id": None}
+    initial_cursor = cursor
+    total_rows = 0
+    last_batch_id: int | None = None
+    seen: set[str] = set()
+    while True:
+        if cursor is not None:
+            if cursor in seen:
+                raise IngestionError("API returned a repeated stream cursor")
+            seen.add(cursor)
+        page = api.stream_observations_page(cursor=cursor, limit=5000)
+        rows = page.get("data", [])
+        next_cursor = page.get("next_cursor")
+        if rows:
+            frame = pd.DataFrame(rows)
+            frame["station_id"] = frame["station_id"].astype("string")
+            frame["observed_at"] = pd.to_datetime(frame["observed_at"], utc=True)
+            for part in chunks(records(frame)):
+                db.upsert("observations", part, on_conflict="station_id,observed_at")
+            batch = db.insert_one("ingestion_batches", {
+                "run_id": run_id, "source_cursor": cursor, "next_cursor": next_cursor,
+                "rows_received": len(frame),
+                "source_cutoff": frame["observed_at"].max().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "status": "success",
+            })
+            last_batch_id = batch["ingestion_batch_id"]
+            total_rows += len(frame)
+        else:
+            # Keep the last confirmed cursor on an empty response; null must not
+            # rewind a stream whose checkpoint was already advanced.
+            retained_cursor = next_cursor if next_cursor is not None else cursor
+            batch = db.insert_one("ingestion_batches", {
+                "run_id": run_id, "source_cursor": cursor, "next_cursor": retained_cursor,
+                "rows_received": 0, "status": "no_data",
+            })
+            last_batch_id = batch["ingestion_batch_id"]
+            next_cursor = retained_cursor
+
+        if next_cursor is None or next_cursor == cursor:
+            return {"rows": total_rows, "source_cursor": initial_cursor, "next_cursor": next_cursor, "batch_id": last_batch_id}
+        cursor = next_cursor
 
 
 def main() -> None:

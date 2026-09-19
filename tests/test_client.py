@@ -55,3 +55,24 @@ def test_download_verifies_checksum(tmp_path) -> None:
     with client() as api:
         path = api.download("stations.csv", tmp_path / "stations.csv")
     assert path.read_text() == "station_id,name\n03000,Portal Suba\n"
+
+
+def test_current_cycle_returns_none_when_no_cycle_is_open() -> None:
+    def no_cycle(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"detail": {"code": "no_open_cycle", "message": "closed"}})
+
+    with PulsoTransmiClient(base_url="https://example.test", transport=httpx.MockTransport(no_cycle)) as api:
+        assert api.current_cycle() is None
+
+
+def test_submission_sends_bearer_and_idempotency_headers() -> None:
+    def submit(request: httpx.Request) -> httpx.Response:
+        assert request.headers["Authorization"] == "Bearer test-secret"
+        assert request.headers["Idempotency-Key"] == "pulso-test-key"
+        return httpx.Response(201, json={"submission_id": "sub_test"})
+
+    with PulsoTransmiClient(
+        base_url="https://example.test", api_key="test-secret", transport=httpx.MockTransport(submit)
+    ) as api:
+        result = api.create_submission({"schema_version": "1.0"}, "pulso-test-key")
+    assert result == {"submission_id": "sub_test"}

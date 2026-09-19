@@ -5,7 +5,7 @@ ejemplos reproducibles y una plantilla de GitHub Actions para construir un
 pipeline que descargue datos, entrene, monitoree y posteriormente envíe
 predicciones.
 
-> **Disponible públicamente:** la API de lectura está en
+> **Disponible públicamente:** la API está en
 > `https://pulso-transmi.72-60-245-2.sslip.io` y su documentación interactiva en
 > [`/docs`](https://pulso-transmi.72-60-245-2.sslip.io/docs).
 
@@ -75,7 +75,7 @@ Para evaluación local, usa una división temporal: por ejemplo, primeros 38 dí
 para entrenamiento y últimos 7 para validación. Una partición aleatoria mezcla
 futuro y pasado y genera métricas engañosas.
 
-## API de lectura `0.2.0`
+## API pública `0.5.0`
 
 | Método | Ruta | Uso |
 |---|---|---|
@@ -85,9 +85,14 @@ futuro y pasado y genera métricas engañosas.
 | `GET` | `/v1/observations` | Demanda paginada |
 | `GET` | `/v1/context` | Clima y eventos |
 | `GET` | `/v1/downloads/{filename}` | Descarga completa |
+| `GET` | `/v1/forecast-cycles/current` | Ciclo de pronóstico abierto |
+| `GET` | `/v1/stream/observations` | Stream competitivo incremental |
+| `POST` | `/v1/submissions` | Envío autenticado de pronósticos |
+| `GET` | `/v1/submissions/{submission_id}` | Recibo de submission |
+| `GET` | `/v1/leaderboard` | Leaderboard oficial |
 
 Swagger está disponible en `/docs`. Consulta [docs/api.md](docs/api.md) para
-filtros, paginación y errores.
+filtros, paginación, ciclo y contrato de submissions.
 
 ## Estructura esperada del proyecto estudiantil
 
@@ -176,3 +181,13 @@ La comparación de persistencia y naive estacional diario está documentada en
 Los candidatos entrenados y su validación están en [reports/modelos.md](reports/modelos.md).
 El backtesting de varias ventanas está documentado en [reports/backtesting-ventanas.md](reports/backtesting-ventanas.md).
 El workflow manual **Upload model artifacts to Supabase Storage** entrena los candidatos y los guarda en un bucket privado.
+
+### Envío de pronósticos a la API de competencia
+
+El workflow manual **Pulso TransMi forecast submission** sincroniza el stream,
+consulta si existe un ciclo abierto, entrena HistGradientBoosting con datos hasta
+el cutoff y envía las 48 predicciones con `PULSO_API_KEY` e idempotencia. Si no
+hay ciclo abierto, termina sin enviar. También permite consultar un recibo o el
+leaderboard. Configura `PULSO_API_KEY` y `SUPABASE_SERVICE_ROLE_KEY` como Actions
+secrets, y `SUPABASE_URL` como repository variable. El horario automático se
+mantiene desactivado hasta confirmar la frecuencia oficial.

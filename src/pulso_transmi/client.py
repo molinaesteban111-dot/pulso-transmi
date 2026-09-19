@@ -24,7 +24,7 @@ class PulsoTransmiClient:
         timeout: float = 30.0,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
-        resolved_url = base_url or os.getenv("PULSO_API_URL", DEFAULT_BASE_URL)
+        resolved_url = base_url or os.getenv("PULSO_API_URL") or DEFAULT_BASE_URL
         resolved_key = api_key or os.getenv("PULSO_API_KEY")
         headers = {"User-Agent": "pulso-transmi-python/0.1.0"}
         if resolved_key:
@@ -56,6 +56,55 @@ class PulsoTransmiClient:
 
     def meta(self) -> dict[str, Any]:
         return self._get("/v1/meta").json()
+
+    def current_cycle(self) -> dict[str, Any] | None:
+        """Return the open cycle, or None when the competition has no open cycle."""
+        try:
+            response = self._client.get("/v1/forecast-cycles/current")
+        except httpx.HTTPError as exc:
+            raise PulsoTransmiError(f"GET /v1/forecast-cycles/current failed: {exc}") from exc
+        if response.status_code == 404:
+            try:
+                detail = response.json().get("detail", {})
+            except (ValueError, AttributeError):
+                detail = {}
+            if detail.get("code") == "no_open_cycle":
+                return None
+        try:
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise PulsoTransmiError(f"GET /v1/forecast-cycles/current failed: {exc}") from exc
+        return response.json()
+
+    def stream_observations_page(self, *, cursor: str | None = None, limit: int = 5000) -> dict[str, Any]:
+        """Read one page from the competition observations stream."""
+        params = {"limit": limit}
+        if cursor is not None:
+            params["cursor"] = cursor
+        return self._get("/v1/stream/observations", params=params).json()
+
+    def create_submission(self, payload: dict[str, Any], idempotency_key: str) -> dict[str, Any]:
+        if not self._client.headers.get("Authorization"):
+            raise PulsoTransMiError("PULSO_API_KEY is required to submit forecasts")
+        try:
+            response = self._client.post(
+                "/v1/submissions",
+                headers={"Idempotency-Key": idempotency_key},
+                json=payload,
+            )
+            response.raise_for_status()
+            return response.json() if response.content else {}
+        except httpx.HTTPError as exc:
+            body = getattr(getattr(exc, "response", None), "text", "")
+            raise PulsoTransMiError(f"POST /v1/submissions failed: {exc}; {body[:500]}") from exc
+
+    def submission_receipt(self, submission_id: str) -> dict[str, Any]:
+        return self._get(f"/v1/submissions/{submission_id}").json()
+
+    def leaderboard(self, window: str = "cumulative") -> dict[str, Any]:
+        if window not in {"cumulative", "rolling_24h"}:
+            raise ValueError("window must be 'cumulative' or 'rolling_24h'")
+        return self._get("/v1/leaderboard", params={"window": window}).json()
 
     def stations(self) -> pd.DataFrame:
         payload = self._get("/v1/stations").json()

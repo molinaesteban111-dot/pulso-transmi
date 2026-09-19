@@ -128,6 +128,9 @@ las dos plataformas reemplaza el repositorio ni GitHub Actions.
 Consulta [docs/student-project.md](docs/student-project.md) para el flujo completo
 y los entregables.
 
+La bitácora del trabajo realizado, su evidencia y los pendientes actuales está en
+[docs/estado-del-proyecto.md](docs/estado-del-proyecto.md).
+
 ## Métrica
 
 La referencia actual es:

@@ -1,6 +1,10 @@
 name: Pulso TransMi forecast submission
 
 on:
+  # Revisa cada 15 minutos si el profesor abrió una ronda. Si no hay ronda,
+  # src.pipeline termina de forma segura sin crear una submission.
+  schedule:
+    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       action:
@@ -28,6 +32,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: pulso-transmi-forecast
+  cancel-in-progress: false
+
 jobs:
   competition:
     runs-on: ubuntu-latest
@@ -46,7 +54,7 @@ jobs:
         run: python -m pip install -e ".[ml]"
 
       - name: Actualizar observaciones del stream
-        if: ${{ inputs.action == 'forecast' }}
+        if: ${{ github.event_name == 'schedule' || inputs.action == 'forecast' }}
         env:
           PULSO_API_URL: ${{ vars.PULSO_API_URL }}
           PULSO_API_KEY: ${{ secrets.PULSO_API_KEY }}
@@ -55,7 +63,7 @@ jobs:
         run: python -m src.ingest --incremental
 
       - name: Generar y enviar pronóstico (o no-op si no hay ciclo)
-        if: ${{ inputs.action == 'forecast' }}
+        if: ${{ github.event_name == 'schedule' || inputs.action == 'forecast' }}
         env:
           PULSO_API_URL: ${{ vars.PULSO_API_URL }}
           PULSO_API_KEY: ${{ secrets.PULSO_API_KEY }}

@@ -1,0 +1,3 @@
+{
+  "functions": { "api/dashboard.py": { "runtime": "python3.12" } }
+}

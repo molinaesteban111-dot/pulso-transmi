@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pulso TransMi · Monitoreo</title>
+  <style>
+    :root { color-scheme: dark; --green:#0b3023; --gold:#d2ad47; --paper:#f5f3e9; }
+    body { margin:0; font-family:Arial,sans-serif; background:var(--paper); color:#14231c; }
+    header { background:var(--green); color:white; padding:34px max(24px,calc((100% - 1100px)/2)); border-bottom:8px solid var(--gold); }
+    main { max-width:1100px; margin:32px auto; padding:0 24px; }
+    h1 { margin:0 0 8px; font-size:clamp(2rem,5vw,4rem); } h2 { color:var(--green); }
+    .card { background:white; border:1px solid #d6d5ca; padding:24px; margin:20px 0; box-shadow:0 4px 14px #14231c12; }
+    .summary { display:flex; gap:18px; flex-wrap:wrap; } .stat { flex:1; min-width:180px; background:var(--green); color:white; padding:18px; }
+    .stat strong { display:block; color:var(--gold); font-size:2rem; margin-top:8px; }
+    table { width:100%; border-collapse:collapse; } th,td { text-align:left; padding:12px 8px; border-bottom:1px solid #ddd; } th { color:var(--green); }
+    .ok { color:#167346; font-weight:bold; } .muted { color:#66736c; } #error { color:#a33; }
+  </style>
+</head>
+<body>
+  <header><h1>Pulso TransMi</h1><div>Dashboard de evaluación y monitoreo del modelo</div></header>
+  <main>
+    <div id="error"></div>
+    <section class="card"><h2>Estado del leaderboard</h2><div id="summary" class="summary"><div class="muted">Cargando métricas...</div></div></section>
+    <section class="card"><h2>Clasificación acumulada</h2><table><thead><tr><th>Posición</th><th>Participante</th><th>Accuracy</th><th>Accuracy@20</th><th>Cobertura</th></tr></thead><tbody id="rows"></tbody></table></section>
+    <p class="muted">Datos consultados desde la API oficial de Pulso TransMi. Actualización en caché cada 5 minutos.</p>
+  </main>
+  <script>
+    fetch('/api/dashboard').then(r => r.json()).then(payload => {
+      if (payload.error) throw new Error(payload.error);
+      const rows = payload.data || [];
+      const mine = rows.find(x => x.display_name === 'Juan Esteban Molina');
+      document.querySelector('#summary').innerHTML = mine ? `
+        <div class="stat">Accuracy<strong>${mine.accuracy.toFixed(2)}%</strong></div>
+        <div class="stat">Posición<strong>#${mine.rank}</strong></div>
+        <div class="stat">Cobertura<strong>${(mine.coverage * 100).toFixed(2)}%</strong></div>` : '<div class="muted">Aún no hay fila para el equipo.</div>';
+      document.querySelector('#rows').innerHTML = rows.map(x => `<tr><td>${x.rank}</td><td>${x.display_name}</td><td>${Number(x.accuracy).toFixed(2)}%</td><td>${Number(x.accuracy_at_20).toFixed(2)}%</td><td>${(Number(x.coverage)*100).toFixed(2)}%</td></tr>`).join('');
+    }).catch(err => document.querySelector('#error').textContent = `No se pudieron cargar las métricas: ${err.message}`);
+  </script>
+</body>
+</html>

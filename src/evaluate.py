@@ -9,11 +9,11 @@ from datetime import datetime, timezone
 import httpx
 
 from ingest import SupabaseRest
-from pulso_transmi import PulsoTransMiClient
+from pulso_transmi import PulsoTransmiClient
 
 
 def main() -> None:
-    api = PulsoTransMiClient(api_key=os.environ.get("PULSO_API_KEY"))
+    api = PulsoTransmiClient(api_key=os.environ.get("PULSO_API_KEY"))
     board = api.leaderboard("cumulative")
     print(json.dumps(board, indent=2, ensure_ascii=False))
     url, key = os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY")

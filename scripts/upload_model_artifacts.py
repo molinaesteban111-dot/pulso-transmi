@@ -17,7 +17,7 @@ BUCKET = "pulso-transmi-model-artifacts"
 MODELS = ("ridge", "hist_gradient_boosting")
 
 
-def main() -> None:
+def main() -> str:
     base_url = os.environ["SUPABASE_URL"].rstrip("/")
     service_key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
     if not base_url or not service_key:
@@ -89,6 +89,7 @@ def main() -> None:
         )
         result.raise_for_status()
         print(f"Uploaded {manifest_name}")
+    return trained_at
 
 
 if __name__ == "__main__":

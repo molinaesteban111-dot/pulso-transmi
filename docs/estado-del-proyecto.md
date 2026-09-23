@@ -1,6 +1,6 @@
 # Estado y bitácora del proyecto Pulso TransMi
 
-**Corte del documento:** 19 de septiembre de 2026
+**Corte del documento:** 23 de septiembre de 2026
 
 **Repositorio del equipo:** <https://github.com/molinaesteban111-dot/pulso-transmi>
 
@@ -22,7 +22,7 @@ La competencia requiere 48 predicciones por ciclo (12 estaciones × horizontes +
 - Se clonó el starter kit oficial y se creó el repositorio del equipo `molinaesteban111-dot/pulso-transmi`.
 - El repositorio local usa la rama `main` y apunta al repositorio del equipo, no al upstream del curso.
 - Se conservó el SDK oficial para consultar la API, descargar datos y validar checksums.
-- El repositorio del equipo está publicado en GitHub, rama `main`. El último commit verificado es `e061c38` (`Add forecast submission pipeline`).
+- El repositorio del equipo está publicado en GitHub, rama `main`. La automatización operativa quedó en el commit `3038c8d`; las mejoras de champion/evaluación se encuentran en esta actualización.
 
 ### Datos y análisis exploratorio
 
@@ -41,6 +41,9 @@ La competencia requiere 48 predicciones por ciclo (12 estaciones × horizontes +
 - Se configuraron en GitHub Actions los secretos `PULSO_API_KEY` y `SUPABASE_SERVICE_ROLE_KEY` (confirmado visualmente por el usuario para el primero y en la configuración compartida previamente para el segundo); `PULSO_API_URL` y `SUPABASE_URL` se usan como variables. Los valores secretos no se registran ni deben compartirse.
 - El 19 de septiembre de 2026 se ejecutó manualmente `Pulso TransMi forecast submission` en la rama `main`, commit `e061c38`. El job tuvo estado **Success**: instaló el proyecto y completó la sincronización de observaciones. El paso de predicción devolvió `{"status":"no_open_cycle"}`. Por tanto, esa ejecución no entrenó ni envió pronósticos, no creó submission y no produjo recibo ni evaluación oficial.
 - Se explicó que el API key autentica solicitudes, pero no determina por sí mismo el endpoint ni convierte las métricas del backtest en un payload válido de competencia. Queda pendiente pedir al profesor la ruta y el esquema específicos si requiere registrar métricas de backtest con la clave. Hasta recibir esa especificación, no se envían datos a una ruta inventada ni se mandan las predicciones de validación como si fueran predicciones futuras.
+- Se revisó la guía operativa v2.0. El workflow de inferencia ahora está preparado para despertar cada 10 minutos, consultar el ciclo y evitar duplicados; el entrenamiento/promoción y la evaluación/monitoreo viven en workflows separados.
+- Se promovió en Supabase el artefacto HistGradientBoosting validado como champion inicial (`hgb-champion-20260919T035232Z`) con `artifact_uri` estable en el bucket privado. La inferencia carga ese `.joblib`; ya no reentrena en cada ciclo.
+- Se añadieron `train-and-promote.yml`, `evaluate-and-monitor.yml` y `scripts/promote_model.py`. El primero entrena candidatos y solo promueve si mejora al champion; el segundo consulta leaderboard/recibos para operar la evaluación. La promoción conserva la versión anterior como `historical` y registra la transición.
 
 ### Modelo de datos
 
@@ -77,7 +80,9 @@ La competencia requiere 48 predicciones por ciclo (12 estaciones × horizontes +
 | Modelos candidatos y evaluación | [`reports/modelos.md`](../reports/modelos.md) |
 | Entrenamiento reproducible | `examples/04_train_models.py` |
 | Backtesting temporal multiventana | [`reports/backtesting-ventanas.md`](../reports/backtesting-ventanas.md), `reports/rolling_backtest_metrics.csv` y `reports/rolling_backtest_predictions.csv.gz` |
-| Pipeline de predicción/submission | [`src/pipeline.py`](../src/pipeline.py) y [workflow manual](../.github/workflows/forecast-submission.yml) |
+| Pipeline de predicción/submission | [`src/pipeline.py`](../src/pipeline.py) y [workflow de inferencia](../.github/workflows/forecast-submission.yml) |
+| Entrenamiento y promoción | [`train-and-promote.yml`](../.github/workflows/train-and-promote.yml) y `scripts/promote_model.py` |
+| Evaluación y monitoreo | [`evaluate-and-monitor.yml`](../.github/workflows/evaluate-and-monitor.yml) y `src/evaluate.py` |
 | Generación de gráficas | `reports/generate_eda_plots.py` |
 | Gráficas del EDA | `reports/figures/*.png` |
 | Diagrama entidad-relación | `docs/modelo-entidad-relacion.md` |
@@ -89,11 +94,10 @@ La competencia requiere 48 predicciones por ciclo (12 estaciones × horizontes +
 
 ## 4. Qué falta antes de continuar
 
-1. Confirmar con el profesor si las métricas del backtest deben entregarse enlazando los artefactos del repositorio o cargándolas a un endpoint privado; si es lo último, solicitar ruta, esquema, autenticación y formato exactos. Los archivos ya están publicados en `reports/`.
-2. Cuando haya un ciclo abierto, ejecutar **Actions → Pulso TransMi forecast submission → Run workflow → forecast**. Confirmar en el log un `submission_id` y recibo; después seleccionar `receipt` o `leaderboard` en una nueva ejecución para recuperar evaluación y posición oficial.
-3. Verificar la carga de histórico a Supabase: 12 estaciones, 4.320 filas de contexto y 51.840 observaciones según el corte original. La documentación previa registra que la carga inicial estaba pendiente; confirmar el estado directamente en la base antes de asumir que se completó.
-4. Revisar el modo incremental contra el contrato del profesor y añadir evaluación de accuracy/drift sobre predicciones resueltas.
-5. Extender la validación temporal y analizar resultados por estación antes de promover un champion productivo.
+1. Verificar periódicamente que los workflows programados aparezcan como eventos `schedule` en GitHub Actions; los schedules solo se ejecutan desde la rama por defecto.
+2. Revisar la salida de `evaluate-and-monitor.yml` y ampliar la persistencia de métricas oficiales por estación/horizonte cuando la API entregue evaluaciones resueltas.
+3. Mantener una ventana temporal reproducible para promoción y conservar rollback del champion anterior.
+4. Confirmar con el profesor si las métricas del backtest requieren además una entrega por un endpoint privado; los CSV ya están publicados en `reports/`.
 
 ## 5. Diferencia entre guía y decisiones implementadas
 
@@ -118,6 +122,7 @@ Supabase se recomendó para la memoria operacional en la guía metodológica, mi
 | `47690a7` | Corrección del import de ingesta; CI verificado exitosamente |
 | `2b1b97d` | Baselines y resultados del backtest rolling |
 | `e061c38` | Pipeline de pronóstico/submission, cliente API, workflow manual y pruebas (13 aprobadas) |
+| `3038c8d` | Automatización programada cada 15 minutos e integración en `main` |
 
 ## 8. Comandos útiles
 

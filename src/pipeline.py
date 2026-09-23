@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import hashlib
 import json
 import os
@@ -14,8 +15,10 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import joblib
+import httpx
 
-from forecasting import build_forecast_features, build_supervised, create_models
+from forecasting import build_forecast_features
 from ingest import IngestionError, SupabaseRest
 from pulso_transmi import PulsoTransmiClient, PulsoTransmiError
 
@@ -23,7 +26,7 @@ from pulso_transmi import PulsoTransmiClient, PulsoTransmiError
 ROOT = Path(__file__).resolve().parents[1]
 BASE_URL = "https://pulso-transmi.72-60-245-2.sslip.io"
 MODEL_KEY = "hist_gradient_boosting"
-MODEL_VERSION = "hgb-candidate-v1"
+MODEL_VERSION = "hgb-champion"
 EXPECTED_STATIONS = 12
 HORIZONS_MINUTES = (15, 30, 45, 60)
 PAGE_SIZE = 1000
@@ -60,8 +63,8 @@ def parse_cycle(payload: dict[str, Any]) -> tuple[str, pd.Timestamp]:
     return cycle_id, _api_datetime(cutoff, "data_cutoff")
 
 
-def idempotency_key(cycle_id: str) -> str:
-    digest = hashlib.sha256(f"{cycle_id}|{MODEL_VERSION}".encode()).hexdigest()
+def idempotency_key(cycle_id: str, model_version: str = MODEL_VERSION) -> str:
+    digest = hashlib.sha256(f"{cycle_id}|{model_version}".encode()).hexdigest()
     return f"pulso-{digest}"
 
 
@@ -139,6 +142,35 @@ def load_training_data(db: SupabaseRest) -> tuple[pd.DataFrame, list[str]]:
         ["station_id", "observed_at"], keep="last"
     ).reset_index(drop=True)
     return frame, station_ids
+
+
+def load_champion(db: SupabaseRest) -> tuple[object, dict[str, Any]]:
+    response = db.client.get(
+        "/model_versions",
+        params={"select": "*", "status": "eq.champion", "order": "created_at.desc", "limit": 1},
+    )
+    if response.is_error:
+        raise PipelineError(f"Champion lookup failed: {response.status_code} {response.text[:400]}")
+    rows = response.json()
+    if not rows or not rows[0].get("artifact_uri"):
+        raise PipelineError("No promoted champion with an artifact_uri is available")
+    artifact_uri = rows[0]["artifact_uri"]
+    prefix = "storage://"
+    if not artifact_uri.startswith(prefix):
+        raise PipelineError("Champion artifact_uri must use storage://bucket/path")
+    bucket, path = artifact_uri[len(prefix):].split("/", 1)
+    download = db.client.get(f"../storage/v1/object/{bucket}/{path}")
+    if download.is_error:
+        # Supabase REST client base URL points at /rest/v1; use the project root
+        # explicitly for Storage downloads.
+        download = httpx.get(
+            f"{db.url.rstrip('/')}/storage/v1/object/{bucket}/{path}",
+            headers={"apikey": db.service_role_key, "Authorization": f"Bearer {db.service_role_key}"},
+            timeout=60,
+        )
+    if download.is_error:
+        raise PipelineError(f"Champion artifact download failed: {download.status_code} {download.text[:400]}")
+    return joblib.load(io.BytesIO(download.content)), rows[0]
 
 
 def _get_existing_submission(db: SupabaseRest, idem: str) -> dict[str, Any] | None:
@@ -245,7 +277,6 @@ def submit_open_cycle() -> dict[str, Any]:
         cycle_id, cutoff = parse_cycle(cycle)
         if not api_key:
             raise PipelineError("PULSO_API_KEY is required while a forecast cycle is open")
-        idem = idempotency_key(cycle_id)
         supabase_url = os.getenv("SUPABASE_URL")
         service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
         if not supabase_url or not service_key:
@@ -253,6 +284,9 @@ def submit_open_cycle() -> dict[str, Any]:
         db = SupabaseRest(supabase_url, service_key)
         run_row: dict[str, Any] | None = None
         try:
+            model, model_version = load_champion(db)
+            model_name = model_version["version_name"]
+            idem = idempotency_key(cycle_id, model_name)
             # If an earlier attempt reached the API but lost its response, retain
             # one submission per cycle/model and retrieve the original receipt.
             existing = _get_existing_submission(db, idem)
@@ -260,7 +294,6 @@ def submit_open_cycle() -> dict[str, Any]:
                 external_id = existing.get("external_submission_id")
                 receipt = api.submission_receipt(external_id) if external_id else existing.get("receipt", {})
                 return {"status": "already_submitted", "submission_id": external_id, "receipt": receipt}
-
             observations, station_ids = load_training_data(db)
             # Do not use observations newer than the cycle's declared cutoff.
             observations = observations.loc[observations["observed_at"].le(cutoff)].copy()
@@ -274,18 +307,11 @@ def submit_open_cycle() -> dict[str, Any]:
             expected_counts = ((coverage["max"] - coverage["min"]).dt.total_seconds() / 900).astype(int) + 1
             if not coverage["count"].eq(expected_counts).all():
                 raise PipelineError("Supabase observation history has missing or irregular 15-minute intervals")
-            supervised = build_supervised(observations)
-            train = supervised.loc[supervised["observed_at"].le(cutoff)].copy()
-            if train.empty:
-                raise PipelineError("Not enough historical rows to train the forecast model")
-
             run_row = db.insert_one("pipeline_runs", {
                 "run_type": "forecast_submission",
                 "git_commit": git_commit(),
                 "status": "running",
             })
-            model = create_models()[MODEL_KEY]
-            model.fit(train, train["demand"])
             forecast_features = build_forecast_features(observations, station_ids, cutoff)
             forecast = forecast_features[["station_id", "observed_at", "horizon_minutes"]].copy()
             forecast["prediction"] = np.maximum(0, model.predict(forecast_features))
@@ -296,12 +322,11 @@ def submit_open_cycle() -> dict[str, Any]:
 
             commit = git_commit()
             payload = make_submission_payload(cycle_id, cutoff, forecast, commit)
+            payload["model"]["version"] = model_name
             response = api.create_submission(payload, idem)
             external_id = response.get("submission_id") or response.get("id")
             receipt = api.submission_receipt(str(external_id)) if external_id else response
-            model_version_id = _get_or_create_model_version(
-                db, cutoff, commit, _candidate_validation_accuracy()
-            )
+            model_version_id = model_version["model_version_id"]
             _persist_submission(db, payload, idem, response, receipt, run_row["run_id"], model_version_id, forecast)
             db.client.patch(
                 "/pipeline_runs",

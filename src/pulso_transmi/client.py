@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import time
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -47,12 +48,19 @@ class PulsoTransmiClient:
         self._client.close()
 
     def _get(self, path: str, *, params: dict[str, Any] | None = None) -> httpx.Response:
-        try:
-            response = self._client.get(path, params=params)
-            response.raise_for_status()
-            return response
-        except httpx.HTTPError as exc:
-            raise PulsoTransmiError(f"GET {path} failed: {exc}") from exc
+        last_error: httpx.HTTPError | None = None
+        for attempt in range(3):
+            try:
+                response = self._client.get(path, params=params)
+                response.raise_for_status()
+                return response
+            except (httpx.ConnectTimeout, httpx.ReadTimeout) as exc:
+                last_error = exc
+                if attempt < 2:
+                    time.sleep(2**attempt)
+            except httpx.HTTPError as exc:
+                raise PulsoTransmiError(f"GET {path} failed: {exc}") from exc
+        raise PulsoTransmiError(f"GET {path} failed after 3 attempts: {last_error}") from last_error
 
     def meta(self) -> dict[str, Any]:
         return self._get("/v1/meta").json()

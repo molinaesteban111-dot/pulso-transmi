@@ -85,7 +85,7 @@ class PulsoTransmiClient:
 
     def create_submission(self, payload: dict[str, Any], idempotency_key: str) -> dict[str, Any]:
         if not self._client.headers.get("Authorization"):
-            raise PulsoTransMiError("PULSO_API_KEY is required to submit forecasts")
+            raise PulsoTransmiError("PULSO_API_KEY is required to submit forecasts")
         try:
             response = self._client.post(
                 "/v1/submissions",
@@ -96,7 +96,7 @@ class PulsoTransmiClient:
             return response.json() if response.content else {}
         except httpx.HTTPError as exc:
             body = getattr(getattr(exc, "response", None), "text", "")
-            raise PulsoTransMiError(f"POST /v1/submissions failed: {exc}; {body[:500]}") from exc
+            raise PulsoTransmiError(f"POST /v1/submissions failed: {exc}; {body[:500]}") from exc
 
     def submission_receipt(self, submission_id: str) -> dict[str, Any]:
         return self._get(f"/v1/submissions/{submission_id}").json()

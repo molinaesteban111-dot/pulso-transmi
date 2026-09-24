@@ -1,11 +1,10 @@
 name: Pulso TransMi forecast submission
 
 on:
-  # Dos cron intercalados reducen el riesgo de retrasos o eventos descartados
-  # por GitHub Actions. La idempotencia evita submissions duplicadas.
+  # Revisa cada 5 minutos si la API abrió un ciclo. La idempotencia evita
+  # submissions duplicadas si GitHub retrasa o repite una ejecución.
   schedule:
-    - cron: "2,12,22,32,42,52 * * * *"
-    - cron: "7,17,27,37,47,57 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       action:

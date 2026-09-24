@@ -64,7 +64,7 @@ La tabla `predictions` ya contiene las predicciones generadas. `evaluations` y `
 
 ### Pronóstico y envío
 
-[`forecast-submission.yml`](../.github/workflows/forecast-submission.yml) está activo en `main` y usa dos cron intercalados para revisar cada 5 minutos, reduciendo el riesgo de retrasos de GitHub Actions. Sincroniza observaciones, consulta `/v1/forecast-cycles/current`, termina sin enviar si no hay ciclo, carga el champion, valida y envía 48 predicciones con idempotencia. También permite acciones manuales `forecast`, `receipt` y `leaderboard`.
+[`forecast-submission.yml`](../.github/workflows/forecast-submission.yml) está activo en `main` y usa el cron `*/5 * * * *` para revisar cada 5 minutos. Sincroniza observaciones, consulta `/v1/forecast-cycles/current`, termina sin enviar si no hay ciclo, carga el champion, valida y envía 48 predicciones con idempotencia. También permite acciones manuales `forecast`, `receipt` y `leaderboard`.
 
 ### Entrenamiento, evaluación y CI
 
@@ -94,7 +94,7 @@ GitHub Actions usa las variables `PULSO_API_URL` y `SUPABASE_URL`, y los secrets
 - Se separó entrenamiento de inferencia mediante un champion empaquetado.
 - Se corrigió la clase `PulsoTransmiClient` en el evaluador (`fffcccf`).
 - Se corrigió `PulsoTransMiError` en el cliente de submissions (`5af6ae7`).
-- Se verificó la ejecución automática por `schedule` cada 10 minutos.
+- Se verificó la ejecución automática por `schedule`; actualmente revisa cada 5 minutos.
 
 ## 11. Verificación y operación
 

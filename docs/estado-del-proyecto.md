@@ -64,7 +64,9 @@ La tabla `predictions` ya contiene las predicciones generadas. `evaluations` y `
 
 ### Pronóstico y envío
 
-[`forecast-submission.yml`](../.github/workflows/forecast-submission.yml) está activo en `main` y usa el cron `*/5 * * * *` para revisar cada 5 minutos. Sincroniza observaciones, consulta `/v1/forecast-cycles/current`, termina sin enviar si no hay ciclo, carga el champion, valida y envía 48 predicciones con idempotencia. También permite acciones manuales `forecast`, `receipt` y `leaderboard`.
+[`forecast-submission.yml`](../.github/workflows/forecast-submission.yml) está activo en `main`. Supabase Cron es el reloj principal: cada 5 minutos llama la API de GitHub y dispara `workflow_dispatch`. El `schedule` nativo de GitHub queda a las `:17` de cada hora como respaldo, ya que GitHub puede retrasar o descartar eventos programados. El workflow sincroniza observaciones, consulta `/v1/forecast-cycles/current`, termina sin enviar si no hay ciclo, carga el champion, valida y envía 48 predicciones con idempotencia.
+
+La migración [`20260924025600_add_external_forecast_scheduler.sql`](../supabase/migrations/20260924025600_add_external_forecast_scheduler.sql) habilita `pg_cron` y `pg_net`, crea una función privada y programa `dispatch-pulso-transmi-forecast` en los minutos `1, 6, 11, ...`. El token fine-grained de GitHub se lee cifrado desde Vault con el nombre `github_actions_token`; nunca se guarda en Git.
 
 ### Entrenamiento, evaluación y CI
 
@@ -72,10 +74,10 @@ La tabla `predictions` ya contiene las predicciones generadas. `evaluations` y `
 
 ## 8. Entregas oficiales
 
-La API aceptó una submission:
+La API ha aceptado **7 submissions y 336 predicciones**. La entrega más reciente es:
 
-- Ciclo: `cyc_official-20260921_20260911T030000Z`
-- Submission: `sub_f07f77f168144ea9a03f81fbb70ee99a`
+- Ciclo: `cyc_official-20260921_20260911T160000Z`
+- Submission: `sub_b2201c55efa547978c4af9a049b8b2e7`
 - Estado: `accepted`
 - Predicciones: 48/48
 - Modelo: `hgb-champion-20260919T035232Z`
@@ -84,7 +86,7 @@ El leaderboard acumulado registró para **Juan Esteban Molina**: accuracy **3.45
 
 ## 9. Variables y secretos
 
-GitHub Actions usa las variables `PULSO_API_URL` y `SUPABASE_URL`, y los secrets `PULSO_API_KEY` y `SUPABASE_SERVICE_ROLE_KEY`. Nunca se deben subir `.env`, API keys, service-role keys ni tokens.
+GitHub Actions usa las variables `PULSO_API_URL` y `SUPABASE_URL`, y los secrets `PULSO_API_KEY` y `SUPABASE_SERVICE_ROLE_KEY`. Supabase Vault guarda `github_actions_token` cifrado y limitado al repositorio. Nunca se deben subir `.env`, API keys, service-role keys ni tokens.
 
 ## 10. Correcciones importantes
 
@@ -94,7 +96,8 @@ GitHub Actions usa las variables `PULSO_API_URL` y `SUPABASE_URL`, y los secrets
 - Se separó entrenamiento de inferencia mediante un champion empaquetado.
 - Se corrigió la clase `PulsoTransmiClient` en el evaluador (`fffcccf`).
 - Se corrigió `PulsoTransMiError` en el cliente de submissions (`5af6ae7`).
-- Se verificó la ejecución automática por `schedule`; actualmente revisa cada 5 minutos.
+- Se añadió Supabase Cron como disparador externo confiable cada 5 minutos.
+- Se verificaron dispatch automáticos reales (`35949663504` y `35950027778`): el primero devolvió `already_submitted` sin duplicar la entrega y el siguiente terminó correctamente con `no_open_cycle`.
 
 ## 11. Verificación y operación
 
@@ -105,11 +108,11 @@ python -m src.pipeline
 python -m src.pipeline --leaderboard cumulative
 ```
 
-En GitHub Actions, `schedule` significa ejecución automática, `workflow_dispatch` manual, `no_open_cycle` significa que no había ciclo y `accepted` confirma un envío válido.
+En GitHub Actions, los runs `workflow_dispatch` pueden ser manuales o creados automáticamente por Supabase Cron. `no_open_cycle` significa que no había ciclo, `accepted` confirma un envío válido y `already_submitted` confirma que la idempotencia evitó un duplicado.
 
 ## 12. Próximos pasos
 
-1. Mantener activo el workflow de pronóstico y revisar sus ejecuciones automáticas.
+1. Vigilar periódicamente `cron.job_run_details` y las ejecuciones automáticas de GitHub.
 2. Confirmar una submission aceptada por cada ciclo nuevo.
 3. Persistir en `evaluations` y `metric_snapshots` las métricas oficiales cuando la API exponga el ground truth.
 4. Revisar periódicamente el champion y promover solo con evidencia de mejora.

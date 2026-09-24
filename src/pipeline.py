@@ -371,6 +371,9 @@ def main() -> None:
             result = submit_open_cycle()
         print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
     except (PipelineError, IngestionError, PulsoTransmiError) as exc:
+        if "cycle_closed" in str(exc):
+            print(json.dumps({"status": "cycle_closed", "message": str(exc)}, ensure_ascii=False))
+            return
         print(f"Pipeline error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 

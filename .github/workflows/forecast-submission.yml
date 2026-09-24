@@ -56,7 +56,7 @@ jobs:
       - name: Actualizar observaciones del stream
         if: ${{ github.event_name == 'schedule' || inputs.action == 'forecast' }}
         env:
-          PULSO_API_URL: ${{ vars.PULSO_API_URL }}
+          PULSO_API_URL: ${{ vars.PULSO_API_URL || 'https://pulso-transmi.72-60-245-2.sslip.io' }}
           PULSO_API_KEY: ${{ secrets.PULSO_API_KEY }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -65,7 +65,7 @@ jobs:
       - name: Cargar champion, generar y enviar pronóstico
         if: ${{ github.event_name == 'schedule' || inputs.action == 'forecast' }}
         env:
-          PULSO_API_URL: ${{ vars.PULSO_API_URL }}
+          PULSO_API_URL: ${{ vars.PULSO_API_URL || 'https://pulso-transmi.72-60-245-2.sslip.io' }}
           PULSO_API_KEY: ${{ secrets.PULSO_API_KEY }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -74,7 +74,7 @@ jobs:
       - name: Consultar recibo
         if: ${{ inputs.action == 'receipt' }}
         env:
-          PULSO_API_URL: ${{ vars.PULSO_API_URL }}
+          PULSO_API_URL: ${{ vars.PULSO_API_URL || 'https://pulso-transmi.72-60-245-2.sslip.io' }}
           PULSO_API_KEY: ${{ secrets.PULSO_API_KEY }}
           SUBMISSION_ID: ${{ inputs.submission_id }}
         run: |
@@ -84,7 +84,7 @@ jobs:
       - name: Consultar leaderboard
         if: ${{ inputs.action == 'leaderboard' }}
         env:
-          PULSO_API_URL: ${{ vars.PULSO_API_URL }}
+          PULSO_API_URL: ${{ vars.PULSO_API_URL || 'https://pulso-transmi.72-60-245-2.sslip.io' }}
           PULSO_API_KEY: ${{ secrets.PULSO_API_KEY }}
           LEADERBOARD_WINDOW: ${{ inputs.leaderboard_window }}
         run: python -m src.pipeline --leaderboard "$LEADERBOARD_WINDOW"

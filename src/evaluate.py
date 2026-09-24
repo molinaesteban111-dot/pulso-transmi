@@ -9,12 +9,19 @@ from datetime import datetime, timezone
 import httpx
 
 from ingest import SupabaseRest
-from pulso_transmi import PulsoTransmiClient
+from pulso_transmi import PulsoTransmiClient, PulsoTransmiError
 
 
 def main() -> None:
     api = PulsoTransmiClient(api_key=os.environ.get("PULSO_API_KEY"))
-    board = api.leaderboard("cumulative")
+    try:
+        board = api.leaderboard("cumulative")
+    except PulsoTransmiError as exc:
+        # Monitoring must not fail the operational pipeline when the external
+        # leaderboard is temporarily unavailable.
+        print(json.dumps({"status": "leaderboard_unavailable", "error": str(exc)}, ensure_ascii=False))
+        api.close()
+        return
     print(json.dumps(board, indent=2, ensure_ascii=False))
     url, key = os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY")
     if not url or not key:

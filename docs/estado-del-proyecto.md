@@ -64,7 +64,7 @@ La tabla `predictions` ya contiene las predicciones generadas. `evaluations` y `
 
 ### Pronóstico y envío
 
-[`forecast-submission.yml`](../.github/workflows/forecast-submission.yml) está activo en `main` y se ejecuta cada 10 minutos. Sincroniza observaciones, consulta `/v1/forecast-cycles/current`, termina sin enviar si no hay ciclo, carga el champion, valida y envía 48 predicciones con idempotencia. También permite acciones manuales `forecast`, `receipt` y `leaderboard`.
+[`forecast-submission.yml`](../.github/workflows/forecast-submission.yml) está activo en `main` y usa dos cron intercalados para revisar cada 5 minutos, reduciendo el riesgo de retrasos de GitHub Actions. Sincroniza observaciones, consulta `/v1/forecast-cycles/current`, termina sin enviar si no hay ciclo, carga el champion, valida y envía 48 predicciones con idempotencia. También permite acciones manuales `forecast`, `receipt` y `leaderboard`.
 
 ### Entrenamiento, evaluación y CI
 

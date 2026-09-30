@@ -1,0 +1,98 @@
+name: Pulso TransMi drift-triggered retraining
+
+on:
+  workflow_dispatch:
+  schedule:
+    # GitHub cron uses UTC. The gate is lightweight; ML runs only at <= 65%.
+    - cron: "47 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pulso-transmi-drift-retraining
+  cancel-in-progress: false
+
+jobs:
+  accuracy_gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    outputs:
+      should_retrain: ${{ steps.gate.outputs.should_retrain }}
+      rolling_accuracy: ${{ steps.gate.outputs.rolling_accuracy }}
+      threshold: ${{ steps.gate.outputs.threshold }}
+      reason: ${{ steps.gate.outputs.reason }}
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar cliente liviano
+        run: python -m pip install -e .
+
+      - name: Comprobar umbral y cooldown
+        id: gate
+        env:
+          PULSO_API_URL: ${{ vars.PULSO_API_URL || 'https://pulso-transmi.72-60-245-2.sslip.io' }}
+          PULSO_API_KEY: ${{ secrets.PULSO_API_KEY }}
+          PULSO_DISPLAY_NAME: ${{ vars.PULSO_DISPLAY_NAME || 'Juan Esteban Molina' }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RETRAIN_ACCURACY_THRESHOLD: ${{ vars.RETRAIN_ACCURACY_THRESHOLD || '65' }}
+          RETRAIN_COOLDOWN_HOURS: ${{ vars.RETRAIN_COOLDOWN_HOURS || '24' }}
+        run: python -m src.retraining
+
+      - name: Resumen de la decisión
+        run: |
+          echo "### Control de reentrenamiento" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Accuracy rolling 24h: ${{ steps.gate.outputs.rolling_accuracy }}%" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Umbral: ${{ steps.gate.outputs.threshold }}%" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Reentrenar: ${{ steps.gate.outputs.should_retrain }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Motivo: ${{ steps.gate.outputs.reason }}" >> "$GITHUB_STEP_SUMMARY"
+
+  retrain_and_promote:
+    needs: accuracy_gate
+    if: ${{ needs.accuracy_gate.outputs.should_retrain == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar proyecto con ML
+        run: python -m pip install -e ".[ml]"
+
+      - name: Sincronizar observaciones recientes
+        env:
+          PULSO_API_URL: ${{ vars.PULSO_API_URL || 'https://pulso-transmi.72-60-245-2.sslip.io' }}
+          PULSO_API_KEY: ${{ secrets.PULSO_API_KEY }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python -m src.ingest --incremental
+
+      - name: Exportar histórico actualizado
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python -m src.export_training_data --output data/observations.csv
+
+      - name: Reentrenar y validar candidatos
+        run: python examples/04_train_models.py --data data/observations.csv
+
+      - name: Promover solamente si mejora al champion actual
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          MIN_PROMOTION_IMPROVEMENT_PP: ${{ vars.MIN_PROMOTION_IMPROVEMENT_PP || '0.10' }}
+        run: python scripts/promote_model.py

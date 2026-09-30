@@ -27,7 +27,9 @@ def main() -> str:
     metadata_path = ROOT / "reports" / "model_metadata.json"
     metadata = json.loads(metadata_path.read_text())
     trained_at = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    headers = {"Authorization": f"Bearer {service_key}", "apikey": service_key}
+    headers = {"apikey": service_key}
+    if service_key.startswith("eyJ") and service_key.count(".") == 2:
+        headers["Authorization"] = f"Bearer {service_key}"
     storage_url = f"{base_url}/storage/v1"
 
     with httpx.Client(timeout=60.0, follow_redirects=True) as client:

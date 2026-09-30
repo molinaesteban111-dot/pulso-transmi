@@ -72,6 +72,17 @@ La migración [`20260924025600_add_external_forecast_scheduler.sql`](../supabase
 
 [`train-and-promote.yml`](../.github/workflows/train-and-promote.yml) entrena candidatos y promueve solo si mejora. [`evaluate-and-monitor.yml`](../.github/workflows/evaluate-and-monitor.yml) consulta leaderboard y recibos. [`ci.yml`](../.github/workflows/ci.yml) instala dependencias y ejecuta pruebas. La verificación local más reciente fue de **13 pruebas exitosas**.
 
+El reentrenamiento automático está controlado por
+[`drift-triggered-retraining.yml`](../.github/workflows/drift-triggered-retraining.yml).
+Cada hora realiza únicamente una consulta liviana del leaderboard `rolling_24h`.
+Si el accuracy de Juan Esteban Molina es **65 % o menor**, sincroniza el stream,
+exporta el histórico actualizado desde Supabase y reentrena los candidatos. Un
+cooldown de 24 horas evita repetir entrenamiento mientras la métrica siga baja.
+El entrenamiento diario incondicional quedó desactivado; `train-and-promote.yml`
+se conserva para ejecución manual. Antes de promover, candidato y champion se
+comparan sobre la misma ventana reciente y se exige una mejora mínima de 0,10
+puntos porcentuales.
+
 ## 8. Entregas oficiales
 
 La API ha aceptado **7 submissions y 336 predicciones**. La entrega más reciente es:

@@ -163,9 +163,12 @@ def load_champion(db: SupabaseRest) -> tuple[object, dict[str, Any]]:
     if download.is_error:
         # Supabase REST client base URL points at /rest/v1; use the project root
         # explicitly for Storage downloads.
+        headers = {"apikey": db.service_role_key}
+        if db.service_role_key.startswith("eyJ") and db.service_role_key.count(".") == 2:
+            headers["Authorization"] = f"Bearer {db.service_role_key}"
         download = httpx.get(
             f"{db.url.rstrip('/')}/storage/v1/object/{bucket}/{path}",
-            headers={"apikey": db.service_role_key, "Authorization": f"Bearer {db.service_role_key}"},
+            headers=headers,
             timeout=60,
         )
     if download.is_error:

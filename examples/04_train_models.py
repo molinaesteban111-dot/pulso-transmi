@@ -54,10 +54,6 @@ def run(data_path: Path, validation_days: int = 7) -> tuple[pd.DataFrame, pd.Dat
         predicted["prediction"] = prediction
         predicted["model"] = name
         prediction_frames.append(predicted)
-        model_dir = ROOT / "artifacts" / "candidates"
-        model_dir.mkdir(parents=True, exist_ok=True)
-        joblib.dump(model, model_dir / f"{name}.joblib")
-
     all_predictions = pd.concat(prediction_frames, ignore_index=True)
     for (model_name, horizon), subset in all_predictions.groupby(["model", "horizon_minutes"], sort=True):
         metric_rows.append({
@@ -105,11 +101,23 @@ def run(data_path: Path, validation_days: int = 7) -> tuple[pd.DataFrame, pd.Dat
             })
 
     metrics = pd.DataFrame(metric_rows)
+
+    # Validation above remains strictly temporal. Once the score is known,
+    # refit each candidate on all observations so a promoted artifact includes
+    # the newest post-drift data rather than stopping before the validation week.
+    model_dir = ROOT / "artifacts" / "candidates"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    for name, model in candidates.items():
+        model.fit(supervised, supervised["demand"])
+        joblib.dump(model, model_dir / f"{name}.joblib")
+
     metadata = {
         "validation_start_exclusive_utc": str(cutoff),
         "validation_end_inclusive_utc": str(observations.observed_at.max()),
         "training_rows": int(len(train)),
         "validation_rows": int(len(validation)),
+        "artifact_training_rows": int(len(supervised)),
+        "artifact_training_end_utc": str(observations.observed_at.max()),
         "origin_feature_lags_intervals": [0, 1, 4, 96, 672],
         "target_same_time_previous_day_lag_intervals": 96,
         "features": "past demand lags/rolling means, cyclic time/day, weekend, station one-hot, horizon; no future context",

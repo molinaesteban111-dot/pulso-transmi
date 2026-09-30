@@ -72,7 +72,7 @@ def supabase_headers(api_key: str) -> dict[str, str]:
 
 def merge_current_drift(history: list[dict], metrics: dict | None) -> list[dict]:
     """Append the live drift when its timestamp is not persisted yet."""
-    points = list(reversed(history))
+    points = sorted(history, key=lambda point: point.get("calculated_at") or "")
     if not metrics or metrics.get("drift_percentage_points") is None:
         return points
     current = {

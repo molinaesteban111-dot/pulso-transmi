@@ -48,17 +48,17 @@ def test_personal_metrics_handles_missing_participant():
     assert "Aún no hay métricas" in payload["message"]
 
 
-def test_modern_supabase_secret_is_not_used_as_bearer_token():
-    headers = supabase_headers("sb_secret_example")
+def test_modern_supabase_opaque_keys_are_not_used_as_bearer_tokens():
+    headers = supabase_headers("sb_publishable_example")
 
-    assert headers["apikey"] == "sb_secret_example"
+    assert headers["apikey"] == "sb_publishable_example"
     assert "Authorization" not in headers
 
 
 def test_legacy_supabase_service_role_uses_bearer_token():
-    headers = supabase_headers("legacy.jwt.value")
+    headers = supabase_headers("eyJheader.payload.signature")
 
-    assert headers["Authorization"] == "Bearer legacy.jwt.value"
+    assert headers["Authorization"] == "Bearer eyJheader.payload.signature"
 
 
 def test_merge_current_drift_returns_chronological_limited_history():

@@ -11,7 +11,10 @@ from urllib.request import Request, urlopen
 
 DEFAULT_API_URL = "https://pulso-transmi.72-60-245-2.sslip.io"
 DEFAULT_DISPLAY_NAME = "Juan Esteban Molina"
-METRIC_SCOPE = "competition_personal"
+DEFAULT_SUPABASE_URL = "https://bppwpnpidjffhzojquml.supabase.co"
+# Publishable keys are intentionally safe for public clients. Database access
+# is restricted to the dashboard_monitoring() RPC below.
+DEFAULT_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_UxOmiZjE52o7FcBegMt2Uw_ab_61Z4w"
 
 
 def _participant(board: dict, display_name: str) -> dict | None:
@@ -59,11 +62,11 @@ def personal_metrics(
     }
 
 
-def supabase_headers(secret_key: str) -> dict[str, str]:
-    """Build server-only REST headers for modern or legacy Supabase keys."""
-    headers = {"apikey": secret_key, "Accept": "application/json"}
-    if not secret_key.startswith("sb_secret_"):
-        headers["Authorization"] = f"Bearer {secret_key}"
+def supabase_headers(api_key: str) -> dict[str, str]:
+    """Build REST headers for modern opaque keys or legacy JWT keys."""
+    headers = {"apikey": api_key, "Accept": "application/json"}
+    if api_key.startswith("eyJ") and api_key.count(".") == 2:
+        headers["Authorization"] = f"Bearer {api_key}"
     return headers
 
 
@@ -129,57 +132,21 @@ class handler(BaseHTTPRequestHandler):
         )
 
     def _supabase_monitoring(self) -> dict:
-        base_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
-        secret_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        base_url = os.environ.get("SUPABASE_URL", DEFAULT_SUPABASE_URL).rstrip("/")
+        publishable_key = os.environ.get(
+            "SUPABASE_PUBLISHABLE_KEY", DEFAULT_SUPABASE_PUBLISHABLE_KEY
+        )
         result = {"runs": [], "drift_history": []}
-        if not base_url or not secret_key:
-            result["warning"] = "El historial de corridas no está configurado."
-            return result
-
-        headers = supabase_headers(secret_key)
-        queries = {
-            "runs": {
-                "table": "pipeline_runs",
-                "params": {
-                    "select": "run_type,status,started_at,finished_at",
-                    "order": "started_at.desc",
-                    "limit": 15,
-                },
-            },
-            "drift_history": {
-                "table": "metric_snapshots",
-                "params": {
-                    "select": "accuracy,drift_score,calculated_at",
-                    "metric_scope": f"eq.{METRIC_SCOPE}",
-                    "order": "calculated_at.desc",
-                    "limit": 24,
-                },
-            },
-        }
-        failures = []
-        for name, query in queries.items():
-            try:
-                url = (
-                    f"{base_url}/rest/v1/{query['table']}?"
-                    f"{urlencode(query['params'])}"
-                )
-                rows = self._get_json(url, headers)
-                if name == "drift_history":
-                    result[name] = [
-                        {
-                            "accuracy": row.get("accuracy"),
-                            "drift": row.get("drift_score"),
-                            "calculated_at": row.get("calculated_at"),
-                        }
-                        for row in rows
-                    ]
-                else:
-                    result[name] = rows
-            except Exception as exc:
-                failures.append(name)
-                print(json.dumps({"event": "supabase_query_failed", "query": name, "error": str(exc)}))
-        if failures:
-            result["warning"] = "No se pudo actualizar: " + ", ".join(failures) + "."
+        try:
+            payload = self._get_json(
+                f"{base_url}/rest/v1/rpc/dashboard_monitoring",
+                supabase_headers(publishable_key),
+            )
+            result["runs"] = payload.get("runs", [])
+            result["drift_history"] = payload.get("drift_history", [])
+        except Exception as exc:
+            print(json.dumps({"event": "supabase_monitoring_failed", "error": str(exc)}))
+            result["warning"] = "El historial no está disponible temporalmente."
         return result
 
     def _json(self, status, payload, cache_control=None):

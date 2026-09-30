@@ -3,47 +3,102 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Pulso TransMi · Monitoreo</title>
+  <title>Mis resultados · Pulso TransMi</title>
   <style>
-    :root { color-scheme: dark; --green:#0b3023; --gold:#d2ad47; --paper:#f5f3e9; }
-    body { margin:0; font-family:Arial,sans-serif; background:var(--paper); color:#14231c; }
-    header { background:var(--green); color:white; padding:34px max(24px,calc((100% - 1100px)/2)); border-bottom:8px solid var(--gold); }
-    main { max-width:1100px; margin:32px auto; padding:0 24px; }
-    h1 { margin:0 0 8px; font-size:clamp(2rem,5vw,4rem); } h2 { color:var(--green); }
-    .card { background:white; border:1px solid #d6d5ca; padding:24px; margin:20px 0; box-shadow:0 4px 14px #14231c12; }
-    .summary { display:flex; gap:18px; flex-wrap:wrap; } .stat { flex:1; min-width:180px; background:var(--green); color:white; padding:18px; }
-    .stat strong { display:block; color:var(--gold); font-size:2rem; margin-top:8px; }
-    table { width:100%; border-collapse:collapse; } th,td { text-align:left; padding:12px 8px; border-bottom:1px solid #ddd; } th { color:var(--green); }
-    .ok { color:#167346; font-weight:bold; } .muted { color:#66736c; } #error { color:#a33; }
+    :root { color-scheme: light; --green:#0b3023; --gold:#d2ad47; --paper:#f5f3e9; --ink:#14231c; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; font-family:Arial,sans-serif; background:var(--paper); color:var(--ink); }
+    header { background:var(--green); color:white; padding:46px max(24px,calc((100% - 1040px)/2)); border-bottom:8px solid var(--gold); }
+    main { max-width:1040px; margin:42px auto; padding:0 24px; }
+    h1 { margin:0 0 8px; font-size:clamp(2.4rem,7vw,4.8rem); line-height:1; }
+    h2 { margin:0; color:var(--green); font-size:clamp(1.6rem,4vw,2.4rem); }
+    .eyebrow { color:var(--gold); font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
+    .card { background:white; border:1px solid #d6d5ca; padding:clamp(22px,4vw,38px); box-shadow:0 4px 18px #14231c14; }
+    .heading { display:flex; align-items:end; justify-content:space-between; gap:18px; margin-bottom:28px; }
+    .summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; }
+    .stat { min-height:165px; background:var(--green); color:white; padding:24px; border-bottom:6px solid var(--gold); }
+    .stat span { display:block; font-size:1rem; }
+    .stat strong { display:block; color:var(--gold); font-size:clamp(2.2rem,5vw,3.5rem); margin:15px 0 8px; }
+    .stat small { color:#dbe6df; line-height:1.4; }
+    .meta { display:flex; justify-content:space-between; gap:20px; flex-wrap:wrap; margin-top:24px; color:#5e6c65; }
+    #status { min-height:1.4em; }
+    #status.error { color:#a33; }
+    #status.warning { color:#946f0b; }
+    .pulse { display:inline-block; width:9px; height:9px; margin-right:8px; border-radius:50%; background:#2ab877; box-shadow:0 0 0 5px #2ab87722; }
+    @media (max-width:720px) { .summary { grid-template-columns:1fr; } .heading { align-items:start; flex-direction:column; } }
   </style>
 </head>
 <body>
-  <header><h1>Pulso TransMi</h1><div>Dashboard de evaluación y monitoreo del modelo</div></header>
+  <header>
+    <div class="eyebrow">Pulso TransMi</div>
+    <h1>Mis resultados</h1>
+    <div id="participant">Juan Esteban Molina</div>
+  </header>
   <main>
-    <div id="error"></div>
-    <section class="card"><h2>Estado del leaderboard</h2><div id="summary" class="summary"><div class="muted">Cargando métricas...</div></div></section>
-    <section class="card"><h2>Operación del pipeline</h2><div id="operation" class="summary"><div class="muted">Cargando estado...</div></div></section>
-    <section class="card"><h2>Clasificación acumulada</h2><table><thead><tr><th>Posición</th><th>Participante</th><th>Accuracy</th><th>Accuracy@20</th><th>Cobertura</th></tr></thead><tbody id="rows"></tbody></table></section>
-    <p class="muted">Datos consultados desde la API oficial de Pulso TransMi. Actualización en caché cada 5 minutos.</p>
+    <section class="card">
+      <div class="heading">
+        <h2>Rendimiento oficial</h2>
+        <div><span class="pulse"></span>Actualización automática</div>
+      </div>
+      <div class="summary" aria-live="polite">
+        <div class="stat"><span>Posición</span><strong id="position">—</strong><small>Leaderboard acumulado</small></div>
+        <div class="stat"><span>Accuracy</span><strong id="accuracy">—</strong><small>Resultado acumulado oficial</small></div>
+        <div class="stat"><span>Drift</span><strong id="drift">—</strong><small>Accuracy 24 h − accuracy acumulada</small></div>
+      </div>
+      <div class="meta">
+        <div id="status">Consultando resultados...</div>
+        <div id="updated">Última actualización: —</div>
+      </div>
+    </section>
   </main>
   <script>
-    fetch('/api/dashboard').then(r => r.json()).then(payload => {
-      if (payload.error) throw new Error(payload.error);
-      const rows = payload.data || [];
-      const mine = rows.find(x => x.display_name === 'Juan Esteban Molina');
-      document.querySelector('#summary').innerHTML = mine ? `
-        <div class="stat">Accuracy<strong>${mine.accuracy.toFixed(2)}%</strong></div>
-        <div class="stat">Posición<strong>#${mine.rank}</strong></div>
-        <div class="stat">Cobertura<strong>${(mine.coverage * 100).toFixed(2)}%</strong></div>` : '<div class="muted">Aún no hay fila para el equipo.</div>';
-      const monitor = payload.monitoring || {};
-      const submission = (monitor.submissions || [])[0];
-      const model = (monitor.model || [])[0];
-      document.querySelector('#operation').innerHTML = `
-        <div class="stat">Último ciclo<strong>${submission ? submission.cycle_id : '—'}</strong><span>${submission ? (submission.status || '').toUpperCase() : 'Sin datos'}</span></div>
-        <div class="stat">Predicciones<strong>${submission ? submission.prediction_count : '—'}</strong><span>por submission</span></div>
-        <div class="stat">Modelo campeón<strong>${model ? model.version_name : '—'}</strong><span>${model ? `${model.algorithm} · ${model.validation_accuracy ?? 'n/d'} backtest` : 'Configura Supabase en Vercel'}</span></div>`;
-      document.querySelector('#rows').innerHTML = rows.map(x => `<tr><td>${x.rank}</td><td>${x.display_name}</td><td>${Number(x.accuracy).toFixed(2)}%</td><td>${Number(x.accuracy_at_20).toFixed(2)}%</td><td>${(Number(x.coverage)*100).toFixed(2)}%</td></tr>`).join('');
-    }).catch(err => document.querySelector('#error').textContent = `No se pudieron cargar las métricas: ${err.message}`);
+    const REFRESH_MS = 30_000;
+    let loading = false;
+    let hasMetrics = false;
+
+    const formatPercent = value => `${Number(value).toFixed(2)}%`;
+    const formatDrift = value => {
+      if (value === null || value === undefined) return '—';
+      const number = Number(value);
+      const sign = number > 0 ? '+' : '';
+      return `${sign}${number.toFixed(2)} pp`;
+    };
+
+    async function loadDashboard() {
+      if (loading) return;
+      loading = true;
+      const status = document.querySelector('#status');
+      status.className = '';
+      status.textContent = hasMetrics ? 'Actualizando...' : 'Consultando resultados...';
+      try {
+        const response = await fetch('/api/dashboard', { cache: 'no-store' });
+        const payload = await response.json();
+        if (!response.ok || payload.error) throw new Error(payload.error || `HTTP ${response.status}`);
+        if (!payload.metrics) throw new Error(payload.message || 'Aún no hay métricas oficiales.');
+
+        document.querySelector('#participant').textContent = payload.participant;
+        document.querySelector('#position').textContent = `#${payload.metrics.position}`;
+        document.querySelector('#accuracy').textContent = formatPercent(payload.metrics.accuracy);
+        document.querySelector('#drift').textContent = formatDrift(payload.metrics.drift_percentage_points);
+        document.querySelector('#updated').textContent = `Última actualización: ${new Date(payload.metrics.calculated_at).toLocaleString('es-CO')}`;
+        status.textContent = payload.warning || 'Resultados sincronizados con la API oficial.';
+        status.className = payload.warning ? 'warning' : '';
+        hasMetrics = true;
+      } catch (error) {
+        status.textContent = hasMetrics
+          ? `No se pudo actualizar; se conservan los últimos resultados. ${error.message}`
+          : `No se pudieron cargar los resultados: ${error.message}`;
+        status.className = 'error';
+      } finally {
+        loading = false;
+      }
+    }
+
+    loadDashboard();
+    setInterval(loadDashboard, REFRESH_MS);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') loadDashboard();
+    });
   </script>
 </body>
 </html>

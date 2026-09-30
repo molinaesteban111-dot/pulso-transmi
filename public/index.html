@@ -5,15 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mis resultados · Pulso TransMi</title>
   <style>
-    :root { color-scheme: light; --green:#0b3023; --gold:#d2ad47; --paper:#f5f3e9; --ink:#14231c; }
+    :root { color-scheme:light; --green:#0b3023; --green-2:#13543b; --gold:#d2ad47; --paper:#f5f3e9; --ink:#14231c; --line:#d6d5ca; }
     * { box-sizing:border-box; }
     body { margin:0; min-height:100vh; font-family:Arial,sans-serif; background:var(--paper); color:var(--ink); }
     header { background:var(--green); color:white; padding:46px max(24px,calc((100% - 1040px)/2)); border-bottom:8px solid var(--gold); }
-    main { max-width:1040px; margin:42px auto; padding:0 24px; }
+    main { max-width:1040px; margin:42px auto; padding:0 24px 50px; }
     h1 { margin:0 0 8px; font-size:clamp(2.4rem,7vw,4.8rem); line-height:1; }
-    h2 { margin:0; color:var(--green); font-size:clamp(1.6rem,4vw,2.4rem); }
+    h2 { margin:0; color:var(--green); font-size:clamp(1.5rem,4vw,2.2rem); }
     .eyebrow { color:var(--gold); font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
-    .card { background:white; border:1px solid #d6d5ca; padding:clamp(22px,4vw,38px); box-shadow:0 4px 18px #14231c14; }
+    .card { background:white; border:1px solid var(--line); padding:clamp(22px,4vw,38px); margin-bottom:24px; box-shadow:0 4px 18px #14231c14; }
     .heading { display:flex; align-items:end; justify-content:space-between; gap:18px; margin-bottom:28px; }
     .summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; }
     .stat { min-height:165px; background:var(--green); color:white; padding:24px; border-bottom:6px solid var(--gold); }
@@ -25,6 +25,19 @@
     #status.error { color:#a33; }
     #status.warning { color:#946f0b; }
     .pulse { display:inline-block; width:9px; height:9px; margin-right:8px; border-radius:50%; background:#2ab877; box-shadow:0 0 0 5px #2ab87722; }
+    .chart-wrap { min-height:290px; border:1px solid #e4e2d8; background:#fcfcf8; padding:12px; }
+    #drift-chart { width:100%; height:auto; display:block; }
+    .chart-note { margin:14px 0 0; color:#5e6c65; }
+    .table-wrap { overflow-x:auto; }
+    table { width:100%; border-collapse:collapse; }
+    th,td { text-align:left; padding:13px 10px; border-bottom:1px solid #e0ded4; white-space:nowrap; }
+    th { color:var(--green); font-size:.85rem; letter-spacing:.04em; text-transform:uppercase; }
+    .badge { display:inline-block; padding:5px 9px; border-radius:999px; font-size:.8rem; font-weight:700; text-transform:uppercase; }
+    .success { color:#11653e; background:#dff3e7; }
+    .running { color:#8a6500; background:#fff2c7; }
+    .failed { color:#9b2f2f; background:#fde3e3; }
+    .no_data { color:#55615b; background:#ecefea; }
+    .empty { color:#66736c; text-align:center; padding:46px 12px; }
     @media (max-width:720px) { .summary { grid-template-columns:1fr; } .heading { align-items:start; flex-direction:column; } }
   </style>
 </head>
@@ -50,9 +63,35 @@
         <div id="updated">Última actualización: —</div>
       </div>
     </section>
+
+    <section class="card">
+      <div class="heading">
+        <h2>Evolución del drift</h2>
+        <div id="drift-count">0 mediciones</div>
+      </div>
+      <div class="chart-wrap">
+        <svg id="drift-chart" viewBox="0 0 860 260" role="img" aria-label="Evolución del drift en puntos porcentuales"></svg>
+        <div id="drift-empty" class="empty">Esperando la primera medición histórica...</div>
+      </div>
+      <p class="chart-note">Un valor negativo indica que el accuracy de las últimas 24 horas está por debajo del acumulado; uno positivo indica mejora reciente.</p>
+    </section>
+
+    <section class="card">
+      <div class="heading">
+        <h2>Historial de corridas</h2>
+        <div>15 más recientes</div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Proceso</th><th>Estado</th><th>Inicio</th><th>Duración</th></tr></thead>
+          <tbody id="runs"><tr><td colspan="4" class="empty">Consultando corridas...</td></tr></tbody>
+        </table>
+      </div>
+    </section>
   </main>
   <script>
     const REFRESH_MS = 30_000;
+    const SVG_NS = 'http://www.w3.org/2000/svg';
     let loading = false;
     let hasMetrics = false;
 
@@ -60,9 +99,105 @@
     const formatDrift = value => {
       if (value === null || value === undefined) return '—';
       const number = Number(value);
-      const sign = number > 0 ? '+' : '';
-      return `${sign}${number.toFixed(2)} pp`;
+      return `${number > 0 ? '+' : ''}${number.toFixed(2)} pp`;
     };
+    const formatDate = value => value ? new Date(value).toLocaleString('es-CO') : '—';
+    const formatDuration = run => {
+      if (!run.started_at || !run.finished_at) return run.status === 'running' ? 'En curso' : '—';
+      const seconds = Math.max(0, Math.round((new Date(run.finished_at) - new Date(run.started_at)) / 1000));
+      return seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)} min ${seconds % 60} s`;
+    };
+    const runNames = {
+      collector: 'Collector',
+      forecast_submission: 'Predicción y envío',
+      evaluation: 'Evaluación',
+      training: 'Entrenamiento'
+    };
+
+    function svgElement(name, attributes = {}) {
+      const element = document.createElementNS(SVG_NS, name);
+      Object.entries(attributes).forEach(([key, value]) => element.setAttribute(key, value));
+      return element;
+    }
+
+    function renderDrift(points) {
+      const chart = document.querySelector('#drift-chart');
+      const empty = document.querySelector('#drift-empty');
+      const clean = (points || []).filter(point => Number.isFinite(Number(point.drift)) && point.calculated_at);
+      document.querySelector('#drift-count').textContent = `${clean.length} ${clean.length === 1 ? 'medición' : 'mediciones'}`;
+      chart.replaceChildren();
+      if (!clean.length) {
+        chart.hidden = true;
+        empty.hidden = false;
+        return;
+      }
+      chart.hidden = false;
+      empty.hidden = true;
+
+      const width = 860, height = 260, left = 58, right = 24, top = 20, bottom = 45;
+      const values = clean.map(point => Number(point.drift));
+      let min = Math.min(0, ...values), max = Math.max(0, ...values);
+      if (min === max) { min -= 1; max += 1; }
+      const margin = Math.max(.25, (max - min) * .12);
+      min -= margin; max += margin;
+      const x = index => clean.length === 1 ? width / 2 : left + index * (width - left - right) / (clean.length - 1);
+      const y = value => top + (max - value) * (height - top - bottom) / (max - min);
+
+      [min, 0, max].forEach(value => {
+        const gridY = y(value);
+        chart.appendChild(svgElement('line', { x1:left, y1:gridY, x2:width-right, y2:gridY, stroke:value === 0 ? '#d2ad47' : '#d9ded9', 'stroke-width':value === 0 ? 2 : 1 }));
+        const label = svgElement('text', { x:left-8, y:gridY+4, 'text-anchor':'end', fill:'#5e6c65', 'font-size':12 });
+        label.textContent = `${value.toFixed(1)}`;
+        chart.appendChild(label);
+      });
+
+      const coordinates = clean.map((point, index) => `${x(index)},${y(Number(point.drift))}`).join(' ');
+      chart.appendChild(svgElement('polyline', { points:coordinates, fill:'none', stroke:'#13543b', 'stroke-width':4, 'stroke-linecap':'round', 'stroke-linejoin':'round' }));
+      clean.forEach((point, index) => {
+        const circle = svgElement('circle', { cx:x(index), cy:y(Number(point.drift)), r:index === clean.length - 1 ? 6 : 4, fill:index === clean.length - 1 ? '#d2ad47' : '#13543b' });
+        const title = svgElement('title');
+        title.textContent = `${formatDate(point.calculated_at)} · ${formatDrift(point.drift)}`;
+        circle.appendChild(title);
+        chart.appendChild(circle);
+      });
+      const firstLabel = svgElement('text', { x:left, y:height-12, fill:'#5e6c65', 'font-size':12 });
+      firstLabel.textContent = new Date(clean[0].calculated_at).toLocaleDateString('es-CO');
+      chart.appendChild(firstLabel);
+      const lastLabel = svgElement('text', { x:width-right, y:height-12, 'text-anchor':'end', fill:'#5e6c65', 'font-size':12 });
+      lastLabel.textContent = new Date(clean.at(-1).calculated_at).toLocaleDateString('es-CO');
+      chart.appendChild(lastLabel);
+    }
+
+    function renderRuns(runs) {
+      const body = document.querySelector('#runs');
+      body.replaceChildren();
+      if (!runs || !runs.length) {
+        const row = document.createElement('tr');
+        const cell = document.createElement('td');
+        cell.colSpan = 4;
+        cell.className = 'empty';
+        cell.textContent = 'Aún no hay corridas disponibles.';
+        row.appendChild(cell);
+        body.appendChild(row);
+        return;
+      }
+      runs.forEach(run => {
+        const row = document.createElement('tr');
+        const process = document.createElement('td');
+        process.textContent = runNames[run.run_type] || run.run_type;
+        const state = document.createElement('td');
+        const badge = document.createElement('span');
+        badge.className = `badge ${run.status}`;
+        badge.textContent = run.status;
+        state.appendChild(badge);
+        const started = document.createElement('td');
+        started.textContent = formatDate(run.started_at);
+        const duration = document.createElement('td');
+        duration.textContent = formatDuration(run);
+        row.append(process, state, started, duration);
+        body.appendChild(row);
+      });
+    }
 
     async function loadDashboard() {
       if (loading) return;
@@ -71,7 +206,7 @@
       status.className = '';
       status.textContent = hasMetrics ? 'Actualizando...' : 'Consultando resultados...';
       try {
-        const response = await fetch('/api/dashboard', { cache: 'no-store' });
+        const response = await fetch('/api/dashboard', { cache:'no-store' });
         const payload = await response.json();
         if (!response.ok || payload.error) throw new Error(payload.error || `HTTP ${response.status}`);
         if (!payload.metrics) throw new Error(payload.message || 'Aún no hay métricas oficiales.');
@@ -80,7 +215,9 @@
         document.querySelector('#position').textContent = `#${payload.metrics.position}`;
         document.querySelector('#accuracy').textContent = formatPercent(payload.metrics.accuracy);
         document.querySelector('#drift').textContent = formatDrift(payload.metrics.drift_percentage_points);
-        document.querySelector('#updated').textContent = `Última actualización: ${new Date(payload.metrics.calculated_at).toLocaleString('es-CO')}`;
+        document.querySelector('#updated').textContent = `Última actualización: ${formatDate(payload.metrics.calculated_at)}`;
+        renderDrift(payload.drift_history);
+        renderRuns(payload.runs);
         status.textContent = payload.warning || 'Resultados sincronizados con la API oficial.';
         status.className = payload.warning ? 'warning' : '';
         hasMetrics = true;

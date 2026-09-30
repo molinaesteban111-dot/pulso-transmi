@@ -71,6 +71,15 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: python -m src.pipeline
 
+      - name: Registrar accuracy y drift
+        if: ${{ github.event_name == 'schedule' || inputs.action == 'forecast' }}
+        env:
+          PULSO_API_URL: ${{ vars.PULSO_API_URL || 'https://pulso-transmi.72-60-245-2.sslip.io' }}
+          PULSO_API_KEY: ${{ secrets.PULSO_API_KEY }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python -m src.evaluate
+
       - name: Consultar recibo
         if: ${{ inputs.action == 'receipt' }}
         env:

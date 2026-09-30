@@ -35,14 +35,18 @@ class SupabaseRest:
     timeout: float = 60.0
 
     def __post_init__(self) -> None:
+        headers = {
+            "apikey": self.service_role_key,
+            "Content-Type": "application/json",
+            "Prefer": "resolution=merge-duplicates,return=minimal",
+        }
+        # Modern sb_secret keys are opaque API keys, not JWTs. Legacy
+        # service_role JWTs still need the Authorization header.
+        if not self.service_role_key.startswith("sb_secret_"):
+            headers["Authorization"] = f"Bearer {self.service_role_key}"
         self.client = httpx.Client(
             base_url=self.url.rstrip("/") + "/rest/v1",
-            headers={
-                "apikey": self.service_role_key,
-                "Authorization": f"Bearer {self.service_role_key}",
-                "Content-Type": "application/json",
-                "Prefer": "resolution=merge-duplicates,return=minimal",
-            },
+            headers=headers,
             timeout=self.timeout,
         )
 

@@ -1,4 +1,4 @@
-"""Vercel serverless endpoint for the student's personal competition metrics."""
+"""Vercel serverless endpoint for personal competition monitoring."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from urllib.request import Request, urlopen
 
 DEFAULT_API_URL = "https://pulso-transmi.72-60-245-2.sslip.io"
 DEFAULT_DISPLAY_NAME = "Juan Esteban Molina"
+METRIC_SCOPE = "competition_personal"
 
 
 def _participant(board: dict, display_name: str) -> dict | None:
@@ -26,12 +27,7 @@ def personal_metrics(
     rolling_24h: dict | None,
     display_name: str = DEFAULT_DISPLAY_NAME,
 ) -> dict:
-    """Build the public payload for one participant.
-
-    Performance drift is measured in percentage points as the rolling 24-hour
-    accuracy minus the cumulative accuracy. A negative value means recent
-    performance is below the cumulative result.
-    """
+    """Build the public payload for one participant."""
     current = _participant(cumulative, display_name)
     recent = _participant(rolling_24h or {}, display_name)
     if current is None:
@@ -63,6 +59,29 @@ def personal_metrics(
     }
 
 
+def supabase_headers(secret_key: str) -> dict[str, str]:
+    """Build server-only REST headers for modern or legacy Supabase keys."""
+    headers = {"apikey": secret_key, "Accept": "application/json"}
+    if not secret_key.startswith("sb_secret_"):
+        headers["Authorization"] = f"Bearer {secret_key}"
+    return headers
+
+
+def merge_current_drift(history: list[dict], metrics: dict | None) -> list[dict]:
+    """Append the live drift when its timestamp is not persisted yet."""
+    points = list(reversed(history))
+    if not metrics or metrics.get("drift_percentage_points") is None:
+        return points
+    current = {
+        "accuracy": metrics.get("accuracy"),
+        "drift": metrics.get("drift_percentage_points"),
+        "calculated_at": metrics.get("calculated_at"),
+    }
+    if not points or points[-1].get("calculated_at") != current["calculated_at"]:
+        points.append(current)
+    return points[-24:]
+
+
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         base_url = os.environ.get("PULSO_API_URL", DEFAULT_API_URL).rstrip("/")
@@ -79,17 +98,24 @@ class handler(BaseHTTPRequestHandler):
             self._json(502, {"error": "El leaderboard oficial no está disponible."})
             return
 
-        warning = None
+        warnings = []
         try:
             rolling_24h = self._leaderboard(base_url, api_key, "rolling_24h")
         except Exception as exc:
             print(json.dumps({"event": "rolling_leaderboard_failed", "error": str(exc)}))
             rolling_24h = None
-            warning = "El drift no está disponible temporalmente."
+            warnings.append("El drift actual no está disponible temporalmente.")
 
         payload = personal_metrics(cumulative, rolling_24h, display_name)
-        if warning:
-            payload["warning"] = warning
+        monitoring = self._supabase_monitoring()
+        payload["runs"] = monitoring["runs"]
+        payload["drift_history"] = merge_current_drift(
+            monitoring["drift_history"], payload.get("metrics")
+        )
+        if monitoring.get("warning"):
+            warnings.append(monitoring["warning"])
+        if warnings:
+            payload["warning"] = " ".join(warnings)
         self._json(
             200,
             payload,
@@ -101,6 +127,60 @@ class handler(BaseHTTPRequestHandler):
             f"{base_url}/v1/leaderboard?{urlencode({'window': window})}",
             {"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
         )
+
+    def _supabase_monitoring(self) -> dict:
+        base_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+        secret_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        result = {"runs": [], "drift_history": []}
+        if not base_url or not secret_key:
+            result["warning"] = "El historial de corridas no está configurado."
+            return result
+
+        headers = supabase_headers(secret_key)
+        queries = {
+            "runs": {
+                "table": "pipeline_runs",
+                "params": {
+                    "select": "run_type,status,started_at,finished_at",
+                    "order": "started_at.desc",
+                    "limit": 15,
+                },
+            },
+            "drift_history": {
+                "table": "metric_snapshots",
+                "params": {
+                    "select": "accuracy,drift_score,calculated_at",
+                    "metric_scope": f"eq.{METRIC_SCOPE}",
+                    "order": "calculated_at.desc",
+                    "limit": 24,
+                },
+            },
+        }
+        failures = []
+        for name, query in queries.items():
+            try:
+                url = (
+                    f"{base_url}/rest/v1/{query['table']}?"
+                    f"{urlencode(query['params'])}"
+                )
+                rows = self._get_json(url, headers)
+                if name == "drift_history":
+                    result[name] = [
+                        {
+                            "accuracy": row.get("accuracy"),
+                            "drift": row.get("drift_score"),
+                            "calculated_at": row.get("calculated_at"),
+                        }
+                        for row in rows
+                    ]
+                else:
+                    result[name] = rows
+            except Exception as exc:
+                failures.append(name)
+                print(json.dumps({"event": "supabase_query_failed", "query": name, "error": str(exc)}))
+        if failures:
+            result["warning"] = "No se pudo actualizar: " + ", ".join(failures) + "."
+        return result
 
     def _json(self, status, payload, cache_control=None):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")

@@ -1,4 +1,4 @@
-from api.dashboard import personal_metrics
+from api.dashboard import merge_current_drift, personal_metrics, supabase_headers
 
 
 def _board(window, accuracy, rank, calculated_at="2026-09-30T20:00:00Z"):
@@ -46,3 +46,37 @@ def test_personal_metrics_handles_missing_participant():
 
     assert payload["metrics"] is None
     assert "Aún no hay métricas" in payload["message"]
+
+
+def test_modern_supabase_secret_is_not_used_as_bearer_token():
+    headers = supabase_headers("sb_secret_example")
+
+    assert headers["apikey"] == "sb_secret_example"
+    assert "Authorization" not in headers
+
+
+def test_legacy_supabase_service_role_uses_bearer_token():
+    headers = supabase_headers("legacy.jwt.value")
+
+    assert headers["Authorization"] == "Bearer legacy.jwt.value"
+
+
+def test_merge_current_drift_returns_chronological_limited_history():
+    stored_descending = [
+        {"accuracy": 74.5, "drift": -1.2, "calculated_at": "2026-09-30T20:00:00Z"},
+        {"accuracy": 74.0, "drift": -0.8, "calculated_at": "2026-09-30T19:00:00Z"},
+    ]
+    metrics = {
+        "accuracy": 74.7,
+        "drift_percentage_points": -1.5,
+        "calculated_at": "2026-09-30T21:00:00Z",
+    }
+
+    result = merge_current_drift(stored_descending, metrics)
+
+    assert [point["calculated_at"] for point in result] == [
+        "2026-09-30T19:00:00Z",
+        "2026-09-30T20:00:00Z",
+        "2026-09-30T21:00:00Z",
+    ]
+    assert result[-1]["drift"] == -1.5

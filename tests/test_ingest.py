@@ -1,6 +1,6 @@
 import pandas as pd
 
-from ingest import chunks, load_incremental_data, records
+from ingest import SupabaseRest, chunks, load_incremental_data, records
 
 
 def test_records_serializes_timestamps_and_nulls() -> None:
@@ -54,3 +54,20 @@ def test_incremental_ingestion_reads_stream_and_keeps_cursor_on_empty_page(monke
     assert result["next_cursor"] == "cursor-2"
     assert db.batches[-1]["status"] == "no_data"
     assert db.batches[-1]["next_cursor"] == "cursor-2"
+
+
+def test_supabase_rest_supports_modern_secret_keys() -> None:
+    db = SupabaseRest("https://example.supabase.co", "sb_secret_example")
+    try:
+        assert db.client.headers["apikey"] == "sb_secret_example"
+        assert "authorization" not in db.client.headers
+    finally:
+        db.close()
+
+
+def test_supabase_rest_supports_legacy_service_role_jwts() -> None:
+    db = SupabaseRest("https://example.supabase.co", "legacy.jwt.value")
+    try:
+        assert db.client.headers["authorization"] == "Bearer legacy.jwt.value"
+    finally:
+        db.close()

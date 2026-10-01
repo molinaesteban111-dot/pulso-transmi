@@ -11,7 +11,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from forecasting import build_supervised, create_models
+from forecasting import build_supervised, create_models, fit_calibrated_model
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,7 +48,7 @@ def run(data_path: Path, validation_days: int = 7) -> tuple[pd.DataFrame, pd.Dat
         prediction_frames.append(baseline)
 
     for name, model in candidates.items():
-        model.fit(train, train["demand"])
+        model = fit_calibrated_model(model, train, train["demand"])
         prediction = np.maximum(0, model.predict(validation))
         predicted = validation[["station_id", "observed_at", "forecast_origin", "horizon_minutes", "demand"]].copy()
         predicted["prediction"] = prediction
@@ -108,7 +108,7 @@ def run(data_path: Path, validation_days: int = 7) -> tuple[pd.DataFrame, pd.Dat
     model_dir = ROOT / "artifacts" / "candidates"
     model_dir.mkdir(parents=True, exist_ok=True)
     for name, model in candidates.items():
-        model.fit(supervised, supervised["demand"])
+        model = fit_calibrated_model(model, supervised, supervised["demand"])
         joblib.dump(model, model_dir / f"{name}.joblib")
 
     metadata = {
@@ -121,6 +121,12 @@ def run(data_path: Path, validation_days: int = 7) -> tuple[pd.DataFrame, pd.Dat
         "origin_feature_lags_intervals": [0, 1, 4, 96, 672],
         "target_same_time_previous_day_lag_intervals": 96,
         "features": "past demand lags/rolling means, cyclic time/day, weekend, station one-hot, horizon; no future context",
+        "calibration": {
+            "method": "bounded multiplicative recent-bias correction",
+            "calibration_days": 3,
+            "minimum_group_samples": 8,
+            "factor_bounds": [0.75, 1.25],
+        },
         "candidates": {
             "ridge": {"alpha": 10.0},
             "hist_gradient_boosting": {"max_iter": 120, "learning_rate": 0.08, "max_leaf_nodes": 31, "l2_regularization": 1.0, "random_state": 42},

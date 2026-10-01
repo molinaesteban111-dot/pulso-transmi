@@ -40,6 +40,12 @@ Esto aporta evidencia de estabilidad en un periodo de tres semanas, pero no equi
 
 El protocolo y los resultados reproducibles están en [`backtesting-ventanas.md`](backtesting-ventanas.md), `rolling_backtest_metrics.csv` y `rolling_backtest_predictions.csv.gz`; el script es [`examples/05_rolling_backtest.py`](../examples/05_rolling_backtest.py).
 
+### Calibración frente al drift
+
+El reentrenamiento disparado por drift ajusta el sesgo reciente por estación y horizonte antes de evaluar el candidato. La calibración es multiplicativa, se calcula con los últimos tres días disponibles antes de la ventana de validación, se contrae hacia 1 y queda limitada entre 0,75 y 1,25. Así puede corregir una subestimación o sobreestimación reciente sin amplificar ruido ni usar datos futuros. El modelo calibrado conserva el modelo base y los factores en el mismo `.joblib`, por lo que el pipeline de inferencia los aplica automáticamente.
+
+La promoción sigue comparando candidato y champion en la misma ventana reciente y exige una mejora mínima de 0,10 puntos porcentuales. Si la calibración no mejora el resultado, se conserva el champion anterior.
+
 ## Artefactos y reproducción
 
 - Script: [`examples/04_train_models.py`](../examples/04_train_models.py)

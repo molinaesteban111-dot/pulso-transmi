@@ -83,6 +83,12 @@ se conserva para ejecución manual. Antes de promover, candidato y champion se
 comparan sobre la misma ventana reciente y se exige una mejora mínima de 0,10
 puntos porcentuales.
 
+Cuando se entrena por drift, cada candidato incorpora además una calibración
+reciente por estación y horizonte: usa los últimos tres días previos a la
+validación, aplica factores multiplicativos acotados entre 0,75 y 1,25 y los
+guarda dentro del artefacto `.joblib`. La calibración no usa datos futuros y no
+puede reemplazar al champion si no demuestra mejora en la ventana comparable.
+
 ## 8. Entregas oficiales
 
 La API ha aceptado **7 submissions y 336 predicciones**. La entrega más reciente es:

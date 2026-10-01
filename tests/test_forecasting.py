@@ -3,7 +3,7 @@ from datetime import timedelta
 import numpy as np
 import pandas as pd
 
-from forecasting import build_forecast_features, build_supervised
+from forecasting import build_forecast_features, build_supervised, fit_calibrated_model
 from src.pipeline import idempotency_key, make_submission_payload, parse_cycle
 
 
@@ -59,3 +59,21 @@ def test_cycle_validation_and_deterministic_idempotency() -> None:
     assert cycle_id == "cyc_20260919_01"
     assert str(cutoff) == "2026-09-19 12:00:00+00:00"
     assert idempotency_key(cycle_id) == idempotency_key(cycle_id)
+
+
+def test_calibration_is_bounded_and_uses_station_horizon_keys() -> None:
+    data = history_frame(periods=1_000)
+    supervised = build_supervised(data)
+
+    class ConstantModel:
+        def fit(self, frame, target):
+            self.value = 10.0
+
+        def predict(self, frame):
+            return np.full(len(frame), self.value)
+
+    model = fit_calibrated_model(
+        ConstantModel(), supervised, supervised["demand"], calibration_days=3, min_samples=1
+    )
+    assert all(0.75 <= value <= 1.25 for value in model.factors.values())
+    assert len(model.predict(supervised.head(4))) == 4

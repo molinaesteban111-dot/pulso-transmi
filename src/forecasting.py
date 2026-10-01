@@ -22,6 +22,86 @@ NUMERIC_FEATURES = [
 ]
 
 
+class CalibratedForecastModel:
+    """Apply a bounded recent bias correction to a fitted forecasting model."""
+
+    def __init__(
+        self,
+        model: object,
+        factors: dict[str, float],
+        default_factor: float = 1.0,
+    ) -> None:
+        self.model = model
+        self.factors = factors
+        self.default_factor = default_factor
+
+    def predict(self, frame: pd.DataFrame) -> np.ndarray:
+        prediction = np.asarray(self.model.predict(frame), dtype=float)
+        keys = (
+            frame["station_id"].astype(str)
+            + "|"
+            + frame["horizon_minutes"].astype(str)
+        )
+        factors = keys.map(self.factors).fillna(self.default_factor).to_numpy()
+        return prediction * factors
+
+
+def fit_calibrated_model(
+    model: object,
+    frame: pd.DataFrame,
+    target: pd.Series,
+    calibration_days: int = 3,
+    min_samples: int = 8,
+    lower_factor: float = 0.75,
+    upper_factor: float = 1.25,
+) -> CalibratedForecastModel:
+    """Fit a model and calibrate recent multiplicative bias without future data.
+
+    The final model is fitted on all supplied rows, but calibration factors are
+    estimated from a recent holdout that precedes the rows used for evaluation.
+    Factors are shrunk toward 1.0 and bounded because the official metric is
+    WAPE-based and an unconstrained correction could amplify noise.
+    """
+    if calibration_days < 1:
+        raise ValueError("calibration_days must be positive")
+    if frame.empty:
+        raise ValueError("Cannot fit a calibrated model on an empty frame")
+
+    timestamps = pd.to_datetime(frame["observed_at"], utc=True)
+    cutoff = timestamps.max() - timedelta(days=calibration_days)
+    calibration = frame.loc[timestamps.gt(cutoff)].copy()
+    core = frame.loc[timestamps.le(cutoff)].copy()
+    if core.empty or calibration.empty:
+        model.fit(frame, target)
+        return CalibratedForecastModel(model, {})
+
+    core_target = target.loc[core.index]
+    model.fit(core, core_target)
+    calibration_prediction = np.maximum(0.0, model.predict(calibration))
+    calibration = calibration.assign(
+        _prediction=calibration_prediction,
+        _target=target.loc[calibration.index].to_numpy(),
+    )
+    factors: dict[str, float] = {}
+    for (station_id, horizon), group in calibration.groupby(
+        ["station_id", "horizon_minutes"], sort=False
+    ):
+        if len(group) < min_samples or group["_prediction"].sum() <= 0:
+            continue
+        # Add a small unit-scale prior so sparse groups remain near 1.0.
+        factor = (group["_target"].sum() + group["_prediction"].sum()) / (
+            2 * group["_prediction"].sum()
+        )
+        factors[f"{station_id}|{int(horizon)}"] = float(
+            np.clip(factor, lower_factor, upper_factor)
+        )
+
+    # Refit the underlying model with all rows; factors came only from the
+    # recent pre-evaluation holdout, so the evaluation remains temporal.
+    model.fit(frame, target)
+    return CalibratedForecastModel(model, factors)
+
+
 def build_supervised(data: pd.DataFrame) -> pd.DataFrame:
     """Create supervised rows using only demand known at each forecast origin."""
     data = data.sort_values(["station_id", "observed_at"]).reset_index(drop=True).copy()

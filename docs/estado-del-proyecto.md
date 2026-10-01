@@ -77,7 +77,9 @@ El reentrenamiento automático está controlado por
 Cada hora realiza únicamente una consulta liviana del leaderboard `rolling_24h`.
 Si el accuracy de Juan Esteban Molina es **65 % o menor**, sincroniza el stream,
 exporta el histórico actualizado desde Supabase y reentrena los candidatos. Un
-cooldown de 24 horas evita repetir entrenamiento mientras la métrica siga baja.
+cooldown de 24 horas evita repetir entrenamiento mientras la métrica siga baja;
+si cambia el commit de la lógica de entrenamiento, se permite una ejecución de
+migración para que el nuevo calibrador llegue al champion.
 El entrenamiento diario incondicional quedó desactivado; `train-and-promote.yml`
 se conserva para ejecución manual. Antes de promover, candidato y champion se
 comparan sobre la misma ventana reciente y se exige una mejora mínima de 0,10

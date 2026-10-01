@@ -62,6 +62,7 @@ def main() -> None:
     ) as api:
         rolling = api.leaderboard("rolling_24h")
     accuracy = participant_accuracy(rolling, display_name)
+    current_commit = os.getenv("GITHUB_SHA") or git_commit()
 
     should_retrain, reason = retraining_decision(accuracy, threshold, False)
     trigger_run_id = ""
@@ -72,7 +73,7 @@ def main() -> None:
             response = db.client.get(
                 "/pipeline_runs",
                 params={
-                    "select": "run_id,started_at",
+                    "select": "run_id,started_at,git_commit",
                     "run_type": f"eq.{RUN_TYPE}",
                     "started_at": f"gte.{cooldown_start.isoformat()}",
                     "order": "started_at.desc",
@@ -80,8 +81,12 @@ def main() -> None:
                 },
             )
             response.raise_for_status()
+            recent_runs = response.json()
+            same_code_run = any(
+                row.get("git_commit") == current_commit for row in recent_runs
+            )
             should_retrain, reason = retraining_decision(
-                accuracy, threshold, bool(response.json())
+                accuracy, threshold, same_code_run
             )
             if should_retrain:
                 now = datetime.now(timezone.utc).isoformat()
@@ -89,7 +94,7 @@ def main() -> None:
                     "pipeline_runs",
                     {
                         "run_type": RUN_TYPE,
-                        "git_commit": os.getenv("GITHUB_SHA") or git_commit(),
+                        "git_commit": current_commit,
                         "status": "success",
                         "started_at": now,
                         "finished_at": now,

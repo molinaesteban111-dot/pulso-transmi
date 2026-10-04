@@ -129,9 +129,16 @@ def load_training_data(db: SupabaseRest) -> tuple[pd.DataFrame, list[str]]:
     station_ids = sorted({str(row["station_id"]) for row in station_rows})
     if len(station_ids) != EXPECTED_STATIONS or any(len(station_id) != 5 or not station_id.isdigit() for station_id in station_ids):
         raise PipelineError(f"Expected {EXPECTED_STATIONS} valid five-digit station IDs in Supabase")
-    observation_rows = _select_all(
-        db, "observations", "station_id,observed_at,demand,schema_version,quality,released_at", "station_id.asc,observed_at.asc"
-    )
+    try:
+        observation_rows = _select_all(
+            db, "observations", "station_id,observed_at,demand,schema_version,quality,released_at", "station_id.asc,observed_at.asc"
+        )
+    except PipelineError as exc:
+        if "Could not find the 'quality' column" not in str(exc):
+            raise
+        observation_rows = _select_all(
+            db, "observations", "station_id,observed_at,demand", "station_id.asc,observed_at.asc"
+        )
     frame = pd.DataFrame(observation_rows)
     if frame.empty:
         raise PipelineError("Supabase has no observations to train from")

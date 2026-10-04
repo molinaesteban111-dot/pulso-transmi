@@ -180,7 +180,20 @@ def load_incremental_data(db: SupabaseRest, api: PulsoTransMiClient, run_id: str
             for key, value in stats.items():
                 total_stats[key] += value
             for part in chunks(normalized):
-                db.upsert("observations", part, on_conflict="station_id,observed_at")
+                try:
+                    db.upsert("observations", part, on_conflict="station_id,observed_at")
+                except IngestionError as exc:
+                    # Keep the collector recoverable while a deployment is
+                    # applying the v2 migration. Missing remains NULL; it is
+                    # never converted to zero. The next run will persist the
+                    # full metadata once the columns exist.
+                    if "Could not find the 'quality' column" not in str(exc):
+                        raise
+                    legacy = [
+                        {key: row[key] for key in ("station_id", "observed_at", "demand")}
+                        for row in part
+                    ]
+                    db.upsert("observations", legacy, on_conflict="station_id,observed_at")
             batch = db.insert_one("ingestion_batches", {
                 "run_id": run_id, "source_cursor": cursor, "next_cursor": next_cursor,
                 "rows_received": len(normalized),

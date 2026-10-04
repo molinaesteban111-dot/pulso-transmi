@@ -110,6 +110,42 @@ def chunks(rows: list[dict[str, Any]], size: int = 500) -> list[list[dict[str, A
     return [rows[start : start + size] for start in range(0, len(rows), size)]
 
 
+def normalize_observations(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Normalize mixed v1/v2 stream records without turning missing into zero."""
+    normalized: list[dict[str, Any]] = []
+    stats = {"v1": 0, "v2": 0, "observed": 0, "missing": 0, "invalid": 0}
+    for raw in rows:
+        version = int(raw.get("schema_version", 1))
+        measurement = raw.get("measurement") if version == 2 else None
+        quality = (measurement or {}).get("quality", "observed")
+        value = (measurement or {}).get("value") if measurement is not None else raw.get("demand")
+        if version == 1:
+            stats["v1"] += 1
+        elif version == 2:
+            stats["v2"] += 1
+        else:
+            stats["invalid"] += 1
+            raise IngestionError(f"Unsupported observation schema_version: {version}")
+        if quality not in {"observed", "missing"}:
+            stats["invalid"] += 1
+            raise IngestionError(f"Unsupported observation quality: {quality}")
+        demand = None if quality == "missing" or value is None else float(value)
+        if demand is not None and (not pd.notna(demand) or demand < 0):
+            stats["invalid"] += 1
+            raise IngestionError("Observation measurement.value must be a non-negative decimal")
+        stats[quality] += 1
+        row = {
+            "station_id": str(raw["station_id"]),
+            "observed_at": pd.Timestamp(raw["observed_at"]).tz_convert("UTC").strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "demand": demand,
+            "schema_version": version,
+            "quality": quality,
+            "released_at": None if raw.get("released_at") is None else pd.Timestamp(raw["released_at"]).tz_convert("UTC").strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        normalized.append(row)
+    return normalized, stats
+
+
 def load_static_data(db: SupabaseRest, data_dir: Path = DATA_DIR) -> dict[str, int]:
     stations = pd.read_csv(data_dir / "stations.csv", dtype={"station_id": "string"})
     observations = pd.read_csv(data_dir / "observations.csv", dtype={"station_id": "string"}, parse_dates=["observed_at"])
@@ -128,6 +164,7 @@ def load_incremental_data(db: SupabaseRest, api: PulsoTransMiClient, run_id: str
     cursor = os.getenv("PULSO_CURSOR") or db.latest_cursor()
     initial_cursor = cursor
     total_rows = 0
+    total_stats = {"v1": 0, "v2": 0, "observed": 0, "missing": 0, "invalid": 0}
     last_batch_id: int | None = None
     seen: set[str] = set()
     while True:
@@ -139,19 +176,19 @@ def load_incremental_data(db: SupabaseRest, api: PulsoTransMiClient, run_id: str
         rows = page.get("data", [])
         next_cursor = page.get("next_cursor")
         if rows:
-            frame = pd.DataFrame(rows)
-            frame["station_id"] = frame["station_id"].astype("string")
-            frame["observed_at"] = pd.to_datetime(frame["observed_at"], utc=True)
-            for part in chunks(records(frame)):
+            normalized, stats = normalize_observations(rows)
+            for key, value in stats.items():
+                total_stats[key] += value
+            for part in chunks(normalized):
                 db.upsert("observations", part, on_conflict="station_id,observed_at")
             batch = db.insert_one("ingestion_batches", {
                 "run_id": run_id, "source_cursor": cursor, "next_cursor": next_cursor,
-                "rows_received": len(frame),
-                "source_cutoff": frame["observed_at"].max().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "rows_received": len(normalized),
+                "source_cutoff": max(row["observed_at"] for row in normalized),
                 "status": "success",
             })
             last_batch_id = batch["ingestion_batch_id"]
-            total_rows += len(frame)
+            total_rows += len(normalized)
         else:
             # Keep the last confirmed cursor on an empty response; null must not
             # rewind a stream whose checkpoint was already advanced.
@@ -164,7 +201,7 @@ def load_incremental_data(db: SupabaseRest, api: PulsoTransMiClient, run_id: str
             next_cursor = retained_cursor
 
         if next_cursor is None or next_cursor == cursor:
-            return {"rows": total_rows, "source_cursor": initial_cursor, "next_cursor": next_cursor, "batch_id": last_batch_id}
+            return {"rows": total_rows, "source_cursor": initial_cursor, "next_cursor": next_cursor, "batch_id": last_batch_id, **total_stats}
         cursor = next_cursor
 
 

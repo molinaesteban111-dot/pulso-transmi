@@ -1,6 +1,6 @@
 import pandas as pd
 
-from ingest import SupabaseRest, chunks, load_incremental_data, records
+from ingest import SupabaseRest, chunks, load_incremental_data, normalize_observations, records
 
 
 def test_records_serializes_timestamps_and_nulls() -> None:
@@ -14,6 +14,20 @@ def test_records_serializes_timestamps_and_nulls() -> None:
 def test_chunks_preserves_all_rows() -> None:
     rows = [{"id": index} for index in range(5)]
     assert chunks(rows, size=2) == [[{"id": 0}, {"id": 1}], [{"id": 2}, {"id": 3}], [{"id": 4}]]
+
+
+def test_normalize_mixed_v1_v2_preserves_missing_as_null() -> None:
+    rows, stats = normalize_observations([
+        {"station_id": "03000", "observed_at": "2026-09-01T00:00:00Z", "demand": 12},
+        {"schema_version": 2, "station_id": "03000", "observed_at": "2026-09-01T00:15:00Z",
+         "released_at": "2026-09-01T00:30:00Z", "measurement": {"value": "341.00", "unit": "passengers", "quality": "observed"}},
+        {"schema_version": 2, "station_id": "03000", "observed_at": "2026-09-01T00:30:00Z",
+         "released_at": "2026-09-01T00:45:00Z", "measurement": {"value": None, "unit": "passengers", "quality": "missing"}},
+    ])
+    assert stats == {"v1": 1, "v2": 2, "observed": 2, "missing": 1, "invalid": 0}
+    assert rows[0]["schema_version"] == 1
+    assert rows[1]["demand"] == 341.0
+    assert rows[2]["demand"] is None
 
 
 def test_incremental_ingestion_reads_stream_and_keeps_cursor_on_empty_page(monkeypatch) -> None:

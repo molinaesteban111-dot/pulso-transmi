@@ -130,7 +130,7 @@ def load_training_data(db: SupabaseRest) -> tuple[pd.DataFrame, list[str]]:
     if len(station_ids) != EXPECTED_STATIONS or any(len(station_id) != 5 or not station_id.isdigit() for station_id in station_ids):
         raise PipelineError(f"Expected {EXPECTED_STATIONS} valid five-digit station IDs in Supabase")
     observation_rows = _select_all(
-        db, "observations", "station_id,observed_at,demand", "station_id.asc,observed_at.asc"
+        db, "observations", "station_id,observed_at,demand,schema_version,quality,released_at", "station_id.asc,observed_at.asc"
     )
     frame = pd.DataFrame(observation_rows)
     if frame.empty:
@@ -138,6 +138,12 @@ def load_training_data(db: SupabaseRest) -> tuple[pd.DataFrame, list[str]]:
     frame["station_id"] = frame["station_id"].astype("string")
     frame["observed_at"] = pd.to_datetime(frame["observed_at"], utc=True)
     frame["demand"] = pd.to_numeric(frame["demand"], errors="raise")
+    if "quality" not in frame:
+        frame["quality"] = "observed"
+    frame["quality"] = frame["quality"].fillna("observed")
+    frame = frame.loc[frame["quality"].eq("observed") & frame["demand"].notna()].copy()
+    if frame.empty:
+        raise PipelineError("Supabase has no observed, non-missing observations to train from")
     frame = frame.sort_values(["station_id", "observed_at"]).drop_duplicates(
         ["station_id", "observed_at"], keep="last"
     ).reset_index(drop=True)

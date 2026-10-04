@@ -11,7 +11,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from forecasting import build_supervised, create_models, fit_calibrated_model
+from forecasting import build_supervised, complete_observation_grid, create_models, fit_calibrated_model
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +23,9 @@ def official_accuracy(frame: pd.DataFrame, prediction_column: str) -> float:
 
 def run(data_path: Path, validation_days: int = 7) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, object], dict[str, object]]:
     observations = pd.read_csv(data_path, dtype={"station_id": "string"}, parse_dates=["observed_at"])
+    raw_rows = len(observations)
+    raw_missing = int(observations.get("demand", pd.Series(dtype=float)).isna().sum())
+    observations = complete_observation_grid(observations)
     observations = observations.sort_values(["station_id", "observed_at"]).reset_index(drop=True)
     observations["observed_at"] = pd.to_datetime(observations["observed_at"], utc=True)
     expected = observations.groupby("station_id")["observed_at"].agg(["min", "max", "count"])
@@ -116,6 +119,9 @@ def run(data_path: Path, validation_days: int = 7) -> tuple[pd.DataFrame, pd.Dat
         "validation_end_inclusive_utc": str(observations.observed_at.max()),
         "training_rows": int(len(train)),
         "validation_rows": int(len(validation)),
+        "source_rows": raw_rows,
+        "source_missing_rows": raw_missing,
+        "imputed_history_rows": int(len(observations) - raw_rows),
         "artifact_training_rows": int(len(supervised)),
         "artifact_training_end_utc": str(observations.observed_at.max()),
         "origin_feature_lags_intervals": [0, 1, 4, 96, 672],

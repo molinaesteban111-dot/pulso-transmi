@@ -22,6 +22,32 @@ NUMERIC_FEATURES = [
 ]
 
 
+def complete_observation_grid(data: pd.DataFrame) -> pd.DataFrame:
+    """Complete 15-minute history for feature construction without fake targets.
+
+    Missing source values are linearly interpolated only for lag/history
+    features. Rows whose actual target was missing remain marked as missing and
+    are removed from supervised training/validation.
+    """
+    source = data.copy()
+    source["station_id"] = source["station_id"].astype("string")
+    source["observed_at"] = pd.to_datetime(source["observed_at"], utc=True)
+    source["demand"] = pd.to_numeric(source["demand"], errors="coerce")
+    if "quality" not in source:
+        source["quality"] = np.where(source["demand"].notna(), "observed", "missing")
+    source["quality"] = source["quality"].fillna("observed")
+    frames = []
+    for station_id, group in source.groupby("station_id", sort=True):
+        group = group.sort_values("observed_at").drop_duplicates("observed_at", keep="last")
+        index = pd.date_range(group.observed_at.min(), group.observed_at.max(), freq="15min", tz="UTC")
+        frame = group.set_index("observed_at").reindex(index)
+        frame["station_id"] = station_id
+        frame["quality"] = frame["quality"].fillna("missing")
+        frame["demand"] = frame["demand"].interpolate(method="time", limit_direction="both")
+        frames.append(frame.reset_index(names="observed_at"))
+    return pd.concat(frames, ignore_index=True).sort_values(["station_id", "observed_at"]).reset_index(drop=True)
+
+
 class CalibratedForecastModel:
     """Apply a bounded recent bias correction to a fitted forecasting model."""
 
@@ -104,12 +130,15 @@ def fit_calibrated_model(
 
 def build_supervised(data: pd.DataFrame) -> pd.DataFrame:
     """Create supervised rows using only demand known at each forecast origin."""
+    data = data.copy()
+    if "quality" not in data:
+        data["quality"] = np.where(data["demand"].notna(), "observed", "missing")
     data = data.sort_values(["station_id", "observed_at"]).reset_index(drop=True).copy()
     data["observed_at"] = pd.to_datetime(data["observed_at"], utc=True)
     grouped = data.groupby("station_id", sort=False)["demand"]
     rows = []
     for steps in HORIZONS:
-        frame = data[["station_id", "observed_at", "demand"]].copy()
+        frame = data[["station_id", "observed_at", "demand", "quality"]].copy()
         frame["horizon_steps"] = steps
         frame["forecast_origin"] = frame["observed_at"] - timedelta(minutes=15 * steps)
         for lag in ORIGIN_LAG_STEPS:
@@ -131,7 +160,7 @@ def build_supervised(data: pd.DataFrame) -> pd.DataFrame:
         rows.append(frame)
     result = pd.concat(rows, ignore_index=True)
     required = [f"lag_{lag}" for lag in ORIGIN_LAG_STEPS] + ["target_lag_96", "rolling_mean_4", "rolling_mean_96"]
-    return result.dropna(subset=required).reset_index(drop=True)
+    return result.loc[result["quality"].eq("observed")].dropna(subset=required + ["demand"]).reset_index(drop=True)
 
 
 def create_models() -> dict[str, object]:

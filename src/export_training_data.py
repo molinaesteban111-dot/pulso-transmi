@@ -16,7 +16,7 @@ def main() -> None:
 
     db = SupabaseRest(env("SUPABASE_URL"), env("SUPABASE_SERVICE_ROLE_KEY"))
     try:
-        observations, station_ids = load_training_data(db)
+        observations, station_ids = load_training_data(db, include_missing=True)
     finally:
         db.close()
 

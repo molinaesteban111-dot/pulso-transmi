@@ -124,7 +124,9 @@ def _select_all(db: SupabaseRest, table: str, select: str, order: str) -> list[d
         start += len(page)
 
 
-def load_training_data(db: SupabaseRest) -> tuple[pd.DataFrame, list[str]]:
+def load_training_data(
+    db: SupabaseRest, *, include_missing: bool = False
+) -> tuple[pd.DataFrame, list[str]]:
     station_rows = _select_all(db, "stations", "station_id", "station_id.asc")
     station_ids = sorted({str(row["station_id"]) for row in station_rows})
     if len(station_ids) != EXPECTED_STATIONS or any(len(station_id) != 5 or not station_id.isdigit() for station_id in station_ids):
@@ -148,7 +150,8 @@ def load_training_data(db: SupabaseRest) -> tuple[pd.DataFrame, list[str]]:
     if "quality" not in frame:
         frame["quality"] = "observed"
     frame["quality"] = frame["quality"].fillna("observed")
-    frame = frame.loc[frame["quality"].eq("observed") & frame["demand"].notna()].copy()
+    if not include_missing:
+        frame = frame.loc[frame["quality"].eq("observed") & frame["demand"].notna()].copy()
     if frame.empty:
         raise PipelineError("Supabase has no observed, non-missing observations to train from")
     frame = frame.sort_values(["station_id", "observed_at"]).drop_duplicates(
@@ -310,9 +313,21 @@ def submit_open_cycle() -> dict[str, Any]:
                 external_id = existing.get("external_submission_id")
                 receipt = api.submission_receipt(external_id) if external_id else existing.get("receipt", {})
                 return {"status": "already_submitted", "submission_id": external_id, "receipt": receipt}
-            observations, station_ids = load_training_data(db)
+            observations, station_ids = load_training_data(db, include_missing=True)
             # Do not use observations newer than the cycle's declared cutoff.
             observations = observations.loc[observations["observed_at"].le(cutoff)].copy()
+            missing = observations["demand"].isna()
+            if missing.any():
+                # v2 missing values remain NULL in Supabase and are excluded
+                # from training. For a live forecast only, use the latest
+                # observed value per station so one source gap does not lose
+                # an otherwise valid cycle. The original quality is retained.
+                observations = observations.sort_values(["station_id", "observed_at"])
+                observations["demand"] = observations.groupby("station_id")["demand"].transform(
+                    lambda values: values.ffill().bfill()
+                )
+                if observations["demand"].isna().any():
+                    raise PipelineError("Missing observations cannot be repaired for all stations")
             by_station = observations.groupby("station_id")["observed_at"].max()
             stale = [station for station in station_ids if station not in by_station or by_station[station] != cutoff]
             if stale:

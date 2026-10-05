@@ -33,6 +33,8 @@ Cuando se active el reloj, GitHub Actions deberá:
 
 ## Bono de dashboard
 
+Dashboard publicado: <https://pulso-transmi-seven.vercel.app/>
+
 El dashboard puede mostrar:
 
 - serie y mapa por estación;

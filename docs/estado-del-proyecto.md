@@ -152,3 +152,5 @@ En GitHub Actions, los runs `workflow_dispatch` pueden ser manuales o creados au
 ## 13. Cierre
 
 El proyecto queda cerrado con los workflows automáticos y el cron detenidos. El repositorio conserva el código, la documentación, las migraciones, los reportes, las pruebas y la evidencia de la última entrega.
+
+El bono de visualización queda publicado en Vercel: <https://pulso-transmi-seven.vercel.app/>. El dashboard muestra las métricas personales, posición, cobertura, drift, historial de corridas y estado del pipeline.

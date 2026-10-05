@@ -1,6 +1,6 @@
 # Estado del proyecto Pulso TransMi
 
-**Corte:** 23 de septiembre de 2026
+**Corte:** 5 de octubre de 2026
 **Repositorio:** <https://github.com/molinaesteban111-dot/pulso-transmi>
 **SDK de referencia:** <https://github.com/uexternadojz/pulso-transmi-sdk>
 
@@ -64,13 +64,13 @@ La tabla `predictions` ya contiene las predicciones generadas. `evaluations` y `
 
 ### Pronóstico y envío
 
-[`forecast-submission.yml`](../.github/workflows/forecast-submission.yml) está activo en `main`. Supabase Cron es el reloj principal: cada 5 minutos llama la API de GitHub y dispara `workflow_dispatch`. El `schedule` nativo de GitHub queda a las `:17` de cada hora como respaldo, ya que GitHub puede retrasar o descartar eventos programados. El workflow sincroniza observaciones, consulta `/v1/forecast-cycles/current`, termina sin enviar si no hay ciclo, carga el champion, valida y envía 48 predicciones con idempotencia.
+[`forecast-submission.yml`](../.github/workflows/forecast-submission.yml) quedó implementado y fue verificado en producción. Al cierre del proyecto, los workflows automáticos están **deshabilitados** para detener nuevos consumos; el código y la configuración permanecen versionados en `main`. Cuando se habilitan, sincronizan observaciones, consultan `/v1/forecast-cycles/current`, terminan sin enviar si no hay ciclo, cargan el champion, validan y envían 48 predicciones con idempotencia.
 
-La migración [`20260924025600_add_external_forecast_scheduler.sql`](../supabase/migrations/20260924025600_add_external_forecast_scheduler.sql) habilita `pg_cron` y `pg_net`, crea una función privada y programa `dispatch-pulso-transmi-forecast` en los minutos `1, 6, 11, ...`. El token fine-grained de GitHub se lee cifrado desde Vault con el nombre `github_actions_token`; nunca se guarda en Git.
+La migración [`20260924025600_add_external_forecast_scheduler.sql`](../supabase/migrations/20260924025600_add_external_forecast_scheduler.sql) habilita `pg_cron` y `pg_net`, crea una función privada y programa `dispatch-pulso-transmi-forecast` en los minutos `1, 6, 11, ...`. El token fine-grained de GitHub se lee cifrado desde Vault con el nombre `github_actions_token`; nunca se guarda en Git. El cron quedó detenido al cierre.
 
 ### Entrenamiento, evaluación y CI
 
-[`train-and-promote.yml`](../.github/workflows/train-and-promote.yml) entrena candidatos y promueve solo si mejora. [`evaluate-and-monitor.yml`](../.github/workflows/evaluate-and-monitor.yml) consulta leaderboard y recibos. [`ci.yml`](../.github/workflows/ci.yml) instala dependencias y ejecuta pruebas. La verificación local más reciente fue de **13 pruebas exitosas**.
+[`train-and-promote.yml`](../.github/workflows/train-and-promote.yml) entrena candidatos y promueve solo si mejora. [`evaluate-and-monitor.yml`](../.github/workflows/evaluate-and-monitor.yml) consulta leaderboard y recibos. [`ci.yml`](../.github/workflows/ci.yml) instala dependencias y ejecuta pruebas. La verificación local más reciente fue de **30 pruebas exitosas**. Todos los workflows quedaron deshabilitados al cierre.
 
 El reentrenamiento automático está controlado por
 [`drift-triggered-retraining.yml`](../.github/workflows/drift-triggered-retraining.yml).
@@ -91,7 +91,27 @@ validación, aplica factores multiplicativos acotados entre 0,75 y 1,25 y los
 guarda dentro del artefacto `.joblib`. La calibración no usa datos futuros y no
 puede reemplazar al champion si no demuestra mejora en la ventana comparable.
 
-## 8. Entregas oficiales
+## 8. Entrega final de la fase v2
+
+La corrida [`37218595992`](https://github.com/molinaesteban111-dot/pulso-transmi/actions/runs/37218595992) recuperó la ingesta v2 y entregó el ciclo final:
+
+- Ciclo: `cyc_official-20260921_20260921T060000Z`
+- Submission: `sub_a469812d9f244ab483595004d6f3c13d`
+- Estado: `accepted`
+- Predicciones: `48/48`
+- Registros v2 procesados: `816`
+- Registros observados: `3.820`
+- Faltantes conservados: `18`
+- Registros inválidos: `0`
+- Accuracy acumulado: `62.222901 %`
+- Accuracy rolling 24h: `21.471029 %`
+- Posición: `16`
+- Cobertura: `91.625616 %`
+- Drift: `-40.751873` puntos porcentuales
+
+La ejecución de reentrenamiento [`37243469015`](https://github.com/molinaesteban111-dot/pulso-transmi/actions/runs/37243469015) terminó correctamente después de corregir los huecos: los targets faltantes se excluyen del entrenamiento y los valores imputados solo se usan como historial auxiliar para generar features.
+
+## 9. Entregas oficiales históricas
 
 La API ha aceptado **7 submissions y 336 predicciones**. La entrega más reciente es:
 
@@ -103,11 +123,11 @@ La API ha aceptado **7 submissions y 336 predicciones**. La entrega más recient
 
 El leaderboard acumulado registró para **Juan Esteban Molina**: accuracy **3.45896 %**, accuracy@20 **3.92628 %**, WAPE **0.96645** y cobertura **7.69 %**. Estas métricas cambian conforme se liberan nuevos valores reales.
 
-## 9. Variables y secretos
+## 10. Variables y secretos
 
 GitHub Actions usa las variables `PULSO_API_URL` y `SUPABASE_URL`, y los secrets `PULSO_API_KEY` y `SUPABASE_SERVICE_ROLE_KEY`. Supabase Vault guarda `github_actions_token` cifrado y limitado al repositorio. Nunca se deben subir `.env`, API keys, service-role keys ni tokens.
 
-## 10. Correcciones importantes
+## 11. Correcciones importantes
 
 - Se corrigió la importación del módulo `src` en CI.
 - Se añadió `released_at` a `observations`.
@@ -118,7 +138,7 @@ GitHub Actions usa las variables `PULSO_API_URL` y `SUPABASE_URL`, y los secrets
 - Se añadió Supabase Cron como disparador externo confiable cada 5 minutos.
 - Se verificaron dispatch automáticos reales (`35949663504` y `35950027778`): el primero devolvió `already_submitted` sin duplicar la entrega y el siguiente terminó correctamente con `no_open_cycle`.
 
-## 11. Verificación y operación
+## 12. Verificación y operación
 
 ```bash
 PYTHONPATH=. python -m pytest -q
@@ -129,9 +149,6 @@ python -m src.pipeline --leaderboard cumulative
 
 En GitHub Actions, los runs `workflow_dispatch` pueden ser manuales o creados automáticamente por Supabase Cron. `no_open_cycle` significa que no había ciclo, `accepted` confirma un envío válido y `already_submitted` confirma que la idempotencia evitó un duplicado.
 
-## 12. Próximos pasos
+## 13. Cierre
 
-1. Vigilar periódicamente `cron.job_run_details` y las ejecuciones automáticas de GitHub.
-2. Confirmar una submission aceptada por cada ciclo nuevo.
-3. Persistir en `evaluations` y `metric_snapshots` las métricas oficiales cuando la API exponga el ground truth.
-4. Revisar periódicamente el champion y promover solo con evidencia de mejora.
+El proyecto queda cerrado con los workflows automáticos y el cron detenidos. El repositorio conserva el código, la documentación, las migraciones, los reportes, las pruebas y la evidencia de la última entrega.
